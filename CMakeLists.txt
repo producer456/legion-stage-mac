@@ -19,6 +19,10 @@ target_sources(Sequencer PRIVATE
     src/MainComponent.cpp
     src/PluginHost.h
     src/PluginHost.cpp
+    src/GainProcessor.h
+    src/GainProcessor.cpp
+    src/TrackComponent.h
+    src/TrackComponent.cpp
 )
 
 target_compile_definitions(Sequencer PRIVATE
