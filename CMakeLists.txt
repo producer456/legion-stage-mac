@@ -23,6 +23,11 @@ target_sources(Sequencer PRIVATE
     src/GainProcessor.cpp
     src/TrackComponent.h
     src/TrackComponent.cpp
+    src/MidiClip.h
+    src/ClipPlayerNode.h
+    src/ClipPlayerNode.cpp
+    src/SequencerEngine.h
+    src/SequencerEngine.cpp
 )
 
 target_compile_definitions(Sequencer PRIVATE
