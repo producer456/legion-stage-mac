@@ -17,6 +17,8 @@ target_sources(Sequencer PRIVATE
     src/Main.cpp
     src/MainComponent.h
     src/MainComponent.cpp
+    src/PluginHost.h
+    src/PluginHost.cpp
 )
 
 target_compile_definitions(Sequencer PRIVATE
@@ -25,6 +27,7 @@ target_compile_definitions(Sequencer PRIVATE
     JUCE_ASIO=1
     JUCE_WASAPI=1
     JUCE_DIRECTSOUND=1
+    JUCE_PLUGINHOST_VST3=1
 )
 
 # Point JUCE to the ASIO SDK headers
@@ -35,6 +38,7 @@ target_include_directories(Sequencer PRIVATE
 target_link_libraries(Sequencer PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_devices
+    juce::juce_audio_processors
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
 )
