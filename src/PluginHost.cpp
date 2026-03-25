@@ -111,6 +111,10 @@ void PluginHost::unloadPlugin(int trackIndex)
     auto& track = tracks[static_cast<size_t>(trackIndex)];
     if (track.pluginNode == nullptr) return;
 
+    // Send all-notes-off to prevent stuck notes
+    if (track.clipPlayer != nullptr)
+        track.clipPlayer->sendAllNotesOff.store(true);
+
     auto connections = getConnections();
     for (auto& conn : connections)
     {

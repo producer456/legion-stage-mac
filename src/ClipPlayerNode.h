@@ -43,6 +43,9 @@ public:
     // Arm for recording
     std::atomic<bool> armed { false };
 
+    // Flag to send all-notes-off on next processBlock
+    std::atomic<bool> sendAllNotesOff { false };
+
 private:
     SequencerEngine& engine;
     std::array<ClipSlot, NUM_SLOTS> slots;

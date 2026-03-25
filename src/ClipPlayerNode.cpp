@@ -17,6 +17,16 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 {
     int numSamples = buffer.getNumSamples();
 
+    // Send all-notes-off if flagged (prevents stuck notes)
+    if (sendAllNotesOff.exchange(false))
+    {
+        for (int ch = 1; ch <= 16; ++ch)
+        {
+            midi.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+            midi.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+        }
+    }
+
     // Handle recording — capture incoming MIDI before we add clip playback
     if (recordingSlot >= 0 && engine.isPlaying())
     {
@@ -151,6 +161,7 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
     {
         // Stop playback
         slot.state.store(ClipSlot::Stopped);
+        sendAllNotesOff.store(true);
     }
     else if (slot.state.load() == ClipSlot::Recording)
     {
@@ -176,7 +187,10 @@ void ClipPlayerNode::stopSlot(int slotIndex)
     }
 
     if (slot.state.load() != ClipSlot::Empty)
+    {
         slot.state.store(slot.hasContent() ? ClipSlot::Stopped : ClipSlot::Empty);
+        sendAllNotesOff.store(true);
+    }
 }
 
 void ClipPlayerNode::stopAllSlots()
