@@ -3,13 +3,21 @@
 TrackComponent::TrackComponent(int trackIndex)
     : index(trackIndex)
 {
+    addAndMakeVisible(armButton);
+    armButton.setClickingTogglesState(true);
+    armButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::red.darker());
+    armButton.onClick = [this] {
+        if (onArmChanged)
+            onArmChanged(index, armButton.getToggleState());
+    };
+
     addAndMakeVisible(trackLabel);
-    trackLabel.setText("Track " + juce::String(index + 1), juce::dontSendNotification);
-    trackLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    trackLabel.setText("Trk" + juce::String(index + 1), juce::dontSendNotification);
+    trackLabel.setFont(juce::Font(12.0f, juce::Font::bold));
 
     addAndMakeVisible(pluginLabel);
     pluginLabel.setText("----", juce::dontSendNotification);
-    pluginLabel.setFont(juce::Font(12.0f));
+    pluginLabel.setFont(juce::Font(11.0f));
     pluginLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
 
     addAndMakeVisible(volumeSlider);
@@ -52,14 +60,16 @@ void TrackComponent::paint(juce::Graphics& g)
 
 void TrackComponent::resized()
 {
-    auto area = getLocalBounds().reduced(4, 2);
+    auto area = getLocalBounds().reduced(2, 1);
 
-    trackLabel.setBounds(area.removeFromLeft(60));
-    pluginLabel.setBounds(area.removeFromLeft(100));
-    muteButton.setBounds(area.removeFromRight(25));
-    area.removeFromRight(4);
-    soloButton.setBounds(area.removeFromRight(25));
-    area.removeFromRight(4);
+    armButton.setBounds(area.removeFromLeft(22));
+    area.removeFromLeft(2);
+    trackLabel.setBounds(area.removeFromLeft(35));
+    pluginLabel.setBounds(area.removeFromLeft(70));
+    muteButton.setBounds(area.removeFromRight(22));
+    area.removeFromRight(2);
+    soloButton.setBounds(area.removeFromRight(22));
+    area.removeFromRight(2);
     volumeSlider.setBounds(area);
 }
 
@@ -93,4 +103,9 @@ bool TrackComponent::isMuted() const
 bool TrackComponent::isSoloed() const
 {
     return soloButton.getToggleState();
+}
+
+bool TrackComponent::isArmed() const
+{
+    return armButton.getToggleState();
 }

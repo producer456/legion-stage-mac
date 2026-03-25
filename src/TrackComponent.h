@@ -17,17 +17,19 @@ public:
     float getVolume() const;
     bool isMuted() const;
     bool isSoloed() const;
+    bool isArmed() const;
 
-    // Callbacks — set by MainComponent
-    std::function<void(int)> onSelected;           // track index
-    std::function<void(int, float)> onVolumeChanged; // track index, value
-    std::function<void(int, bool)> onMuteChanged;    // track index, state
-    std::function<void(int, bool)> onSoloChanged;    // track index, state
+    std::function<void(int)> onSelected;
+    std::function<void(int, float)> onVolumeChanged;
+    std::function<void(int, bool)> onMuteChanged;
+    std::function<void(int, bool)> onSoloChanged;
+    std::function<void(int, bool)> onArmChanged;
 
 private:
     int index;
     bool selected = false;
 
+    juce::TextButton armButton { "A" };
     juce::Label trackLabel;
     juce::Label pluginLabel;
     juce::Slider volumeSlider;
