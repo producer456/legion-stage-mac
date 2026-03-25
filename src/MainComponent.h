@@ -17,18 +17,13 @@ public:
         setVisible(true);
         centreWithSize(getWidth(), getHeight());
     }
-
-    void closeButtonPressed() override
-    {
-        if (closeCallback) closeCallback();
-    }
-
+    void closeButtonPressed() override { if (closeCallback) closeCallback(); }
 private:
     std::function<void()> closeCallback;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginEditorWindow)
 };
 
-class MainComponent : public juce::Component
+class MainComponent : public juce::Component, public juce::Timer
 {
 public:
     MainComponent();
@@ -36,20 +31,20 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void timerCallback() override;
 
 private:
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;
 
-    // UI — top controls
+    // Top controls
     juce::ComboBox midiInputSelector;
     juce::TextButton midiRefreshButton { "Refresh" };
     juce::ComboBox pluginSelector;
-    juce::TextButton openEditorButton   { "Open Editor" };
-    juce::TextButton testNoteButton     { "Play Test Note" };
+    juce::TextButton openEditorButton { "Open Editor" };
+    juce::TextButton testNoteButton { "Play Test Note" };
     juce::TextButton audioSettingsButton { "Audio Settings" };
-    juce::Label statusLabel;
 
     // Track list
     juce::OwnedArray<TrackComponent> trackComponents;
@@ -57,21 +52,33 @@ private:
     juce::Component trackListContainer;
     int selectedTrackIndex = 0;
 
-    // Plugin editor window
+    // Clip grid buttons — 16 tracks × 4 slots
+    juce::OwnedArray<juce::TextButton> clipButtons;
+    juce::Component clipGridContainer;
+    juce::Viewport clipGridViewport;
+
+    // Transport
+    juce::TextButton recordButton { "REC" };
+    juce::TextButton playButton { "PLAY" };
+    juce::TextButton stopButton { "STOP" };
+    juce::Slider bpmSlider;
+    juce::Label bpmLabel;
+    juce::Label beatLabel;
+
+    // Status
+    juce::Label statusLabel;
+
+    // Plugin editor
     std::unique_ptr<juce::AudioProcessorEditor> currentEditor;
     std::unique_ptr<PluginEditorWindow> editorWindow;
 
-    // Plugin descriptions
     juce::Array<juce::PluginDescription> pluginDescriptions;
-
-    // MIDI device tracking
     juce::Array<juce::MidiDeviceInfo> midiDevices;
     juce::String currentMidiDeviceId;
 
     void scanMidiDevices();
     void selectMidiDevice();
     void disableCurrentMidiDevice();
-
     void scanPlugins();
     void loadSelectedPlugin();
     void openPluginEditor();
@@ -84,7 +91,11 @@ private:
     void onTrackVolumeChanged(int trackIndex, float volume);
     void onTrackMuteChanged(int trackIndex, bool muted);
     void onTrackSoloChanged(int trackIndex, bool soloed);
+    void onTrackArmChanged(int trackIndex, bool armed);
     void setupTrackList();
+    void setupClipGrid();
+    void onClipButtonClicked(int trackIndex, int slotIndex);
+    void updateClipButtons();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

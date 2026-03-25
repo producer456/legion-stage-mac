@@ -17,13 +17,13 @@ MainComponent::MainComponent()
                                  device->getCurrentBufferSizeSamples());
     }
 
-    // MIDI UI
+    // MIDI
     addAndMakeVisible(midiInputSelector);
     midiInputSelector.onChange = [this] { selectMidiDevice(); };
     addAndMakeVisible(midiRefreshButton);
     midiRefreshButton.onClick = [this] { scanMidiDevices(); };
 
-    // Plugin UI
+    // Plugin
     addAndMakeVisible(pluginSelector);
     pluginSelector.onChange = [this] { loadSelectedPlugin(); };
     addAndMakeVisible(openEditorButton);
@@ -35,34 +35,89 @@ MainComponent::MainComponent()
     addAndMakeVisible(audioSettingsButton);
     audioSettingsButton.onClick = [this] { showAudioSettings(); };
 
+    // Transport
+    addAndMakeVisible(recordButton);
+    recordButton.setClickingTogglesState(true);
+    recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::red);
+    recordButton.onClick = [this] { pluginHost.getEngine().toggleRecord(); };
+
+    addAndMakeVisible(playButton);
+    playButton.onClick = [this] { pluginHost.getEngine().play(); };
+
+    addAndMakeVisible(stopButton);
+    stopButton.onClick = [this] {
+        pluginHost.getEngine().stop();
+        // Stop all clips
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto* cp = pluginHost.getTrack(t).clipPlayer;
+            if (cp) cp->stopAllSlots();
+        }
+        updateClipButtons();
+    };
+
+    addAndMakeVisible(bpmSlider);
+    bpmSlider.setRange(20.0, 300.0, 1.0);
+    bpmSlider.setValue(120.0, juce::dontSendNotification);
+    bpmSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    bpmSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 45, 20);
+    bpmSlider.onValueChange = [this] {
+        pluginHost.getEngine().setBpm(bpmSlider.getValue());
+    };
+
+    addAndMakeVisible(bpmLabel);
+    bpmLabel.setText("BPM:", juce::dontSendNotification);
+
+    addAndMakeVisible(beatLabel);
+    beatLabel.setText("Beat: 0.0", juce::dontSendNotification);
+
     addAndMakeVisible(statusLabel);
     statusLabel.setJustificationType(juce::Justification::centred);
 
-    // Track list
+    // Track list + clip grid
     setupTrackList();
     addAndMakeVisible(trackViewport);
     trackViewport.setViewedComponent(&trackListContainer, false);
 
-    setSize(900, 700);
+    setupClipGrid();
+    addAndMakeVisible(clipGridViewport);
+    clipGridViewport.setViewedComponent(&clipGridContainer, false);
+
+    setSize(950, 750);
 
     scanPlugins();
     scanMidiDevices();
     selectTrack(0);
     updateStatusLabel();
+
+    // Timer for UI updates (clip states, beat display)
+    startTimerHz(15);
 }
 
 MainComponent::~MainComponent()
 {
+    stopTimer();
     disableCurrentMidiDevice();
     closePluginEditor();
     audioPlayer.setProcessor(nullptr);
     deviceManager.removeAudioCallback(&audioPlayer);
 }
 
+void MainComponent::timerCallback()
+{
+    // Update beat display
+    double beat = pluginHost.getEngine().getPositionInBeats();
+    beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
+
+    // Update clip button states
+    updateClipButtons();
+}
+
+// ── Track List ───────────────────────────────────────────────────────────────
+
 void MainComponent::setupTrackList()
 {
     trackComponents.clear();
-
     for (int i = 0; i < PluginHost::NUM_TRACKS; ++i)
     {
         auto* tc = new TrackComponent(i);
@@ -70,35 +125,85 @@ void MainComponent::setupTrackList()
         tc->onVolumeChanged = [this](int idx, float vol) { onTrackVolumeChanged(idx, vol); };
         tc->onMuteChanged = [this](int idx, bool m) { onTrackMuteChanged(idx, m); };
         tc->onSoloChanged = [this](int idx, bool s) { onTrackSoloChanged(idx, s); };
+        tc->onArmChanged = [this](int idx, bool a) { onTrackArmChanged(idx, a); };
         trackListContainer.addAndMakeVisible(tc);
         trackComponents.add(tc);
     }
+    trackListContainer.setSize(280, PluginHost::NUM_TRACKS * 32);
+}
 
-    trackListContainer.setSize(350, PluginHost::NUM_TRACKS * 36);
+void MainComponent::setupClipGrid()
+{
+    clipButtons.clear();
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            auto* btn = new juce::TextButton("");
+            btn->onClick = [this, t, s] { onClipButtonClicked(t, s); };
+            clipGridContainer.addAndMakeVisible(btn);
+            clipButtons.add(btn);
+        }
+    }
+    clipGridContainer.setSize(ClipPlayerNode::NUM_SLOTS * 50, PluginHost::NUM_TRACKS * 32);
+}
+
+void MainComponent::onClipButtonClicked(int trackIndex, int slotIndex)
+{
+    auto* cp = pluginHost.getTrack(trackIndex).clipPlayer;
+    if (cp == nullptr) return;
+
+    cp->triggerSlot(slotIndex);
+    updateClipButtons();
+}
+
+void MainComponent::updateClipButtons()
+{
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto* cp = pluginHost.getTrack(t).clipPlayer;
+        if (cp == nullptr) continue;
+
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            auto& slot = cp->getSlot(s);
+            auto* btn = clipButtons[t * ClipPlayerNode::NUM_SLOTS + s];
+
+            auto state = slot.state.load();
+            switch (state)
+            {
+                case ClipSlot::Empty:
+                    btn->setButtonText("");
+                    btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff333333));
+                    break;
+                case ClipSlot::Stopped:
+                    btn->setButtonText(juce::String::charToString(0x25A0)); // ■
+                    btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555555));
+                    break;
+                case ClipSlot::Playing:
+                    btn->setButtonText(juce::String::charToString(0x25B6)); // ▶
+                    btn->setColour(juce::TextButton::buttonColourId, juce::Colours::green.darker());
+                    break;
+                case ClipSlot::Recording:
+                    btn->setButtonText(juce::String::charToString(0x25CF)); // ●
+                    btn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.darker());
+                    break;
+            }
+        }
+    }
 }
 
 void MainComponent::selectTrack(int index)
 {
     selectedTrackIndex = index;
     pluginHost.setSelectedTrack(index);
-
     for (int i = 0; i < trackComponents.size(); ++i)
         trackComponents[i]->setSelected(i == index);
 
-    // Update plugin selector to show the selected track's plugin
     auto& track = pluginHost.getTrack(index);
-    if (track.plugin != nullptr)
-    {
-        openEditorButton.setEnabled(true);
-        testNoteButton.setEnabled(true);
-    }
-    else
-    {
-        openEditorButton.setEnabled(false);
-        testNoteButton.setEnabled(false);
-    }
+    openEditorButton.setEnabled(track.plugin != nullptr);
+    testNoteButton.setEnabled(track.plugin != nullptr);
 
-    // Close editor when switching tracks
     closePluginEditor();
     updateStatusLabel();
 }
@@ -106,58 +211,54 @@ void MainComponent::selectTrack(int index)
 void MainComponent::onTrackVolumeChanged(int trackIndex, float volume)
 {
     auto& track = pluginHost.getTrack(trackIndex);
-    if (track.gainProcessor != nullptr)
-        track.gainProcessor->volume.store(volume);
+    if (track.gainProcessor) track.gainProcessor->volume.store(volume);
 }
 
 void MainComponent::onTrackMuteChanged(int trackIndex, bool muted)
 {
     auto& track = pluginHost.getTrack(trackIndex);
-    if (track.gainProcessor != nullptr)
-        track.gainProcessor->muted.store(muted);
+    if (track.gainProcessor) track.gainProcessor->muted.store(muted);
 }
 
 void MainComponent::onTrackSoloChanged(int trackIndex, bool soloed)
 {
     auto& track = pluginHost.getTrack(trackIndex);
-    if (track.gainProcessor != nullptr)
+    if (track.gainProcessor)
     {
-        bool wasSoloed = track.gainProcessor->soloed.load();
+        bool was = track.gainProcessor->soloed.load();
         track.gainProcessor->soloed.store(soloed);
-
-        if (soloed && !wasSoloed)
-            pluginHost.soloCount.fetch_add(1);
-        else if (!soloed && wasSoloed)
-            pluginHost.soloCount.fetch_sub(1);
+        if (soloed && !was) pluginHost.soloCount.fetch_add(1);
+        else if (!soloed && was) pluginHost.soloCount.fetch_sub(1);
     }
 }
 
-// ── MIDI Device Management ───────────────────────────────────────────────────
+void MainComponent::onTrackArmChanged(int trackIndex, bool armed)
+{
+    auto* cp = pluginHost.getTrack(trackIndex).clipPlayer;
+    if (cp) cp->armed.store(armed);
+}
+
+// ── MIDI ─────────────────────────────────────────────────────────────────────
 
 void MainComponent::scanMidiDevices()
 {
     midiInputSelector.clear(juce::dontSendNotification);
     midiDevices = juce::MidiInput::getAvailableDevices();
-    midiInputSelector.addItem("-- No MIDI Input --", 1);
-    int itemId = 2;
-    for (const auto& device : midiDevices)
-        midiInputSelector.addItem(device.name, itemId++);
+    midiInputSelector.addItem("-- No MIDI --", 1);
+    int id = 2;
+    for (const auto& d : midiDevices) midiInputSelector.addItem(d.name, id++);
     midiInputSelector.setSelectedId(1, juce::dontSendNotification);
 }
 
 void MainComponent::selectMidiDevice()
 {
     disableCurrentMidiDevice();
-    int selectedIndex = midiInputSelector.getSelectedId() - 2;
-    if (selectedIndex < 0 || selectedIndex >= midiDevices.size())
-    {
-        updateStatusLabel();
-        return;
-    }
-    auto& device = midiDevices[selectedIndex];
-    deviceManager.setMidiInputDeviceEnabled(device.identifier, true);
-    deviceManager.addMidiInputDeviceCallback(device.identifier, &pluginHost.getMidiCollector());
-    currentMidiDeviceId = device.identifier;
+    int idx = midiInputSelector.getSelectedId() - 2;
+    if (idx < 0 || idx >= midiDevices.size()) { updateStatusLabel(); return; }
+    auto& d = midiDevices[idx];
+    deviceManager.setMidiInputDeviceEnabled(d.identifier, true);
+    deviceManager.addMidiInputDeviceCallback(d.identifier, &pluginHost.getMidiCollector());
+    currentMidiDeviceId = d.identifier;
     updateStatusLabel();
 }
 
@@ -171,63 +272,55 @@ void MainComponent::disableCurrentMidiDevice()
     }
 }
 
-// ── Plugin Management ────────────────────────────────────────────────────────
+// ── Plugin ───────────────────────────────────────────────────────────────────
 
 void MainComponent::scanPlugins()
 {
     statusLabel.setText("Scanning plugins...", juce::dontSendNotification);
     repaint();
-
     pluginHost.scanForPlugins();
-
     pluginSelector.clear(juce::dontSendNotification);
     pluginDescriptions.clear();
     pluginSelector.addItem("-- Select Plugin --", 1);
-
-    int itemId = 2;
+    int id = 2;
     for (const auto& desc : pluginHost.getPluginList().getTypes())
     {
         if (desc.isInstrument)
         {
-            pluginSelector.addItem(desc.name, itemId);
+            pluginSelector.addItem(desc.name, id);
             pluginDescriptions.add(desc);
-            itemId++;
+            id++;
         }
     }
-
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
 }
 
 void MainComponent::loadSelectedPlugin()
 {
-    int selectedIndex = pluginSelector.getSelectedId() - 2;
-    if (selectedIndex < 0 || selectedIndex >= pluginDescriptions.size())
+    int idx = pluginSelector.getSelectedId() - 2;
+    if (idx < 0 || idx >= pluginDescriptions.size())
     {
         openEditorButton.setEnabled(false);
         testNoteButton.setEnabled(false);
         return;
     }
-
     closePluginEditor();
     audioPlayer.setProcessor(nullptr);
-
-    juce::String errorMsg;
-    bool success = pluginHost.loadPlugin(selectedTrackIndex, pluginDescriptions[selectedIndex], errorMsg);
-
+    juce::String err;
+    bool ok = pluginHost.loadPlugin(selectedTrackIndex, pluginDescriptions[idx], err);
     audioPlayer.setProcessor(&pluginHost);
-
-    if (success)
+    if (ok)
     {
         openEditorButton.setEnabled(true);
         testNoteButton.setEnabled(true);
-        trackComponents[selectedTrackIndex]->setPluginName(pluginDescriptions[selectedIndex].name);
+        trackComponents[selectedTrackIndex]->setPluginName(pluginDescriptions[idx].name);
         updateStatusLabel();
     }
     else
     {
         openEditorButton.setEnabled(false);
         testNoteButton.setEnabled(false);
-        statusLabel.setText("Failed: " + errorMsg, juce::dontSendNotification);
+        statusLabel.setText("Failed: " + err, juce::dontSendNotification);
     }
 }
 
@@ -235,24 +328,15 @@ void MainComponent::openPluginEditor()
 {
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.plugin == nullptr) return;
-
     closePluginEditor();
-
     currentEditor.reset(track.plugin->createEditorIfNeeded());
-    if (currentEditor == nullptr)
-    {
-        statusLabel.setText("Plugin has no editor", juce::dontSendNotification);
-        return;
-    }
-
-    editorWindow = std::make_unique<PluginEditorWindow>(
-        track.plugin->getName(), currentEditor.get(),
+    if (currentEditor == nullptr) { statusLabel.setText("No editor", juce::dontSendNotification); return; }
+    editorWindow = std::make_unique<PluginEditorWindow>(track.plugin->getName(), currentEditor.get(),
         [this] { closePluginEditor(); });
 }
 
 void MainComponent::closePluginEditor()
 {
-    // IMPORTANT: destroy window first, then editor
     editorWindow = nullptr;
     currentEditor = nullptr;
 }
@@ -260,76 +344,44 @@ void MainComponent::closePluginEditor()
 void MainComponent::playTestNote()
 {
     pluginHost.sendTestNoteOn(60, 0.78f);
-    juce::Timer::callAfterDelay(500, [this] {
-        pluginHost.sendTestNoteOff(60);
-    });
+    juce::Timer::callAfterDelay(500, [this] { pluginHost.sendTestNoteOff(60); });
 }
 
 void MainComponent::showAudioSettings()
 {
-    auto* selector = new juce::AudioDeviceSelectorComponent(
-        deviceManager, 0, 0, 1, 2, false, false, false, false);
-    selector->setSize(500, 400);
-
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned(selector);
-    options.dialogTitle = "Audio Settings";
-    options.componentToCentreAround = this;
-    options.dialogBackgroundColour = getLookAndFeel().findColour(
-        juce::ResizableWindow::backgroundColourId);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.launchAsync();
-
+    auto* sel = new juce::AudioDeviceSelectorComponent(deviceManager, 0, 0, 1, 2, false, false, false, false);
+    sel->setSize(500, 400);
+    juce::DialogWindow::LaunchOptions opt;
+    opt.content.setOwned(sel);
+    opt.dialogTitle = "Audio Settings";
+    opt.componentToCentreAround = this;
+    opt.dialogBackgroundColour = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    opt.escapeKeyTriggersCloseButton = true;
+    opt.useNativeTitleBar = true;
+    opt.resizable = false;
+    opt.launchAsync();
     juce::Timer::callAfterDelay(500, [this] {
-        if (auto* device = deviceManager.getCurrentAudioDevice())
-            pluginHost.setAudioParams(device->getCurrentSampleRate(),
-                                      device->getCurrentBufferSizeSamples());
+        if (auto* dev = deviceManager.getCurrentAudioDevice())
+            pluginHost.setAudioParams(dev->getCurrentSampleRate(), dev->getCurrentBufferSizeSamples());
         updateStatusLabel();
     });
 }
 
 void MainComponent::updateStatusLabel()
 {
-    juce::String text;
-
-    text += "Track " + juce::String(selectedTrackIndex + 1) + " | ";
-
+    juce::String text = "Track " + juce::String(selectedTrackIndex + 1) + " | ";
     auto& track = pluginHost.getTrack(selectedTrackIndex);
-    if (track.plugin != nullptr)
-        text += "Loaded: " + track.plugin->getName() + " | ";
-    else
-        text += "No plugin | ";
-
+    text += (track.plugin ? "Loaded: " + track.plugin->getName() : juce::String("No plugin")) + " | ";
     if (currentMidiDeviceId.isNotEmpty())
-    {
-        for (const auto& dev : midiDevices)
-        {
-            if (dev.identifier == currentMidiDeviceId)
-            {
-                text += "MIDI: " + dev.name + " | ";
-                break;
-            }
-        }
-    }
-
-    auto* device = deviceManager.getCurrentAudioDevice();
-    if (device != nullptr)
-    {
-        text += device->getName()
-              + " | " + juce::String(device->getCurrentSampleRate(), 0) + " Hz"
-              + " | " + juce::String(device->getCurrentBufferSizeSamples()) + " samples";
-    }
-    else
-    {
-        text += "No audio device";
-    }
-
+        for (const auto& d : midiDevices)
+            if (d.identifier == currentMidiDeviceId) { text += "MIDI: " + d.name + " | "; break; }
+    if (auto* dev = deviceManager.getCurrentAudioDevice())
+        text += dev->getName() + " | " + juce::String(dev->getCurrentSampleRate(), 0) + " Hz";
+    else text += "No audio device";
     statusLabel.setText(text, juce::dontSendNotification);
 }
 
-// ── Component overrides ──────────────────────────────────────────────────────
+// ── Layout ───────────────────────────────────────────────────────────────────
 
 void MainComponent::paint(juce::Graphics& g)
 {
@@ -338,43 +390,66 @@ void MainComponent::paint(juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced(10);
+    auto area = getLocalBounds().reduced(8);
 
-    // Top controls
-    auto topArea = area.removeFromTop(150);
+    // Top controls — 2 rows
+    auto row1 = area.removeFromTop(28);
+    midiRefreshButton.setBounds(row1.removeFromRight(65));
+    row1.removeFromRight(4);
+    auto midiArea = row1.removeFromLeft(row1.getWidth() / 2);
+    midiInputSelector.setBounds(midiArea);
+    row1.removeFromLeft(4);
+    openEditorButton.setBounds(row1.removeFromRight(80));
+    row1.removeFromRight(4);
+    pluginSelector.setBounds(row1);
+    area.removeFromTop(4);
 
-    auto midiRow = topArea.removeFromTop(30);
-    midiRefreshButton.setBounds(midiRow.removeFromRight(80));
-    midiRow.removeFromRight(5);
-    midiInputSelector.setBounds(midiRow);
-    topArea.removeFromTop(5);
+    auto row2 = area.removeFromTop(28);
+    audioSettingsButton.setBounds(row2.removeFromLeft(110));
+    row2.removeFromLeft(4);
+    testNoteButton.setBounds(row2.removeFromLeft(100));
+    area.removeFromTop(6);
 
-    pluginSelector.setBounds(topArea.removeFromTop(30));
-    topArea.removeFromTop(5);
+    // Transport bar
+    auto transport = area.removeFromBottom(32);
+    recordButton.setBounds(transport.removeFromLeft(50));
+    transport.removeFromLeft(4);
+    playButton.setBounds(transport.removeFromLeft(55));
+    transport.removeFromLeft(4);
+    stopButton.setBounds(transport.removeFromLeft(55));
+    transport.removeFromLeft(8);
+    bpmLabel.setBounds(transport.removeFromLeft(35));
+    bpmSlider.setBounds(transport.removeFromLeft(150));
+    transport.removeFromLeft(8);
+    beatLabel.setBounds(transport.removeFromLeft(100));
+    area.removeFromBottom(4);
 
-    auto buttonRow = topArea.removeFromTop(30);
-    openEditorButton.setBounds(buttonRow.removeFromLeft(buttonRow.getWidth() / 2));
-    testNoteButton.setBounds(buttonRow);
-    topArea.removeFromTop(5);
+    // Status bar
+    statusLabel.setBounds(area.removeFromBottom(22));
+    area.removeFromBottom(4);
 
-    audioSettingsButton.setBounds(topArea.removeFromTop(30));
+    // Track list (left) + clip grid (right)
+    int trackListWidth = 280;
+    int clipGridWidth = ClipPlayerNode::NUM_SLOTS * 50;
+    int trackHeight = 32;
+    int totalHeight = PluginHost::NUM_TRACKS * trackHeight;
 
-    area.removeFromTop(5);
+    trackViewport.setBounds(area.removeFromLeft(trackListWidth));
+    area.removeFromLeft(4);
+    clipGridViewport.setBounds(area.removeFromLeft(clipGridWidth));
 
-    // Status bar at bottom
-    statusLabel.setBounds(area.removeFromBottom(25));
-    area.removeFromBottom(5);
+    trackListContainer.setSize(trackListWidth - trackViewport.getScrollBarThickness(), totalHeight);
+    clipGridContainer.setSize(clipGridWidth, totalHeight);
 
-    // Track list takes remaining space
-    trackViewport.setBounds(area);
-
-    // Layout track components inside the container
-    int trackHeight = 36;
-    trackListContainer.setSize(trackViewport.getWidth() - trackViewport.getScrollBarThickness(),
-                               PluginHost::NUM_TRACKS * trackHeight);
     for (int i = 0; i < trackComponents.size(); ++i)
+        trackComponents[i]->setBounds(0, i * trackHeight, trackListContainer.getWidth(), trackHeight);
+
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
-        trackComponents[i]->setBounds(0, i * trackHeight,
-                                       trackListContainer.getWidth(), trackHeight);
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            int idx = t * ClipPlayerNode::NUM_SLOTS + s;
+            clipButtons[idx]->setBounds(s * 50, t * trackHeight + 2, 46, trackHeight - 4);
+        }
     }
 }
