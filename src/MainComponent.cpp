@@ -153,7 +153,8 @@ void MainComponent::setupClipGrid()
                         {
                             // PianoRollWindow deletes itself on close
                             new PianoRollWindow("Piano Roll - Track " + juce::String(t + 1)
-                                + " Slot " + juce::String(s + 1), *slot.clip);
+                                + " Slot " + juce::String(s + 1), *slot.clip,
+                                pluginHost.getEngine());
                         }
                     }
                 }

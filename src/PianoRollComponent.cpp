@@ -1,9 +1,11 @@
 #include "PianoRollComponent.h"
 
-PianoRollComponent::PianoRollComponent(MidiClip& c) : clip(c)
+PianoRollComponent::PianoRollComponent(MidiClip& c, SequencerEngine& eng)
+    : clip(c), engine(eng)
 {
     rebuildNoteList();
     scrollY = 48; // start around C3-C5 range
+    startTimerHz(30); // 30fps playhead update
 }
 
 // ── Note list management ─────────────────────────────────────────────────────
@@ -259,6 +261,48 @@ void PianoRollComponent::paint(juce::Graphics& g)
     drawPianoKeys(g);
     drawGrid(g);
     drawNotes(g);
+    drawPlayhead(g);
+}
+
+void PianoRollComponent::timerCallback()
+{
+    if (engine.isPlaying())
+    {
+        // Auto-scroll to follow playhead
+        if (followPlayhead && clip.lengthInBeats > 0.0)
+        {
+            double clipPos = std::fmod(engine.getPositionInBeats(), clip.lengthInBeats);
+            float playheadX = beatToX(clipPos);
+            float viewRight = static_cast<float>(getWidth());
+
+            // If playhead is past 75% of the view, scroll to keep it visible
+            if (playheadX > viewRight * 0.75f || playheadX < static_cast<float>(pianoKeyWidth))
+            {
+                scrollX = clipPos - (viewRight * 0.25 - pianoKeyWidth) / pixelsPerBeat;
+                if (scrollX < 0.0) scrollX = 0.0;
+            }
+        }
+
+        repaint();
+    }
+}
+
+void PianoRollComponent::drawPlayhead(juce::Graphics& g)
+{
+    if (!engine.isPlaying() || clip.lengthInBeats <= 0.0) return;
+
+    double clipPos = std::fmod(engine.getPositionInBeats(), clip.lengthInBeats);
+    float x = beatToX(clipPos);
+
+    if (x < pianoKeyWidth || x > getWidth()) return;
+
+    // Playhead line — bright white/yellow
+    g.setColour(juce::Colour(0xddffcc00));
+    g.drawVerticalLine(static_cast<int>(x), 0.0f, static_cast<float>(getHeight()));
+
+    // Slightly wider glow
+    g.setColour(juce::Colour(0x33ffcc00));
+    g.fillRect(x - 1.0f, 0.0f, 3.0f, static_cast<float>(getHeight()));
 }
 
 void PianoRollComponent::resized() {}

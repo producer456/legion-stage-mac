@@ -2,11 +2,12 @@
 
 #include <JuceHeader.h>
 #include "MidiClip.h"
+#include "SequencerEngine.h"
 
-class PianoRollComponent : public juce::Component
+class PianoRollComponent : public juce::Component, public juce::Timer
 {
 public:
-    PianoRollComponent(MidiClip& clip);
+    PianoRollComponent(MidiClip& clip, SequencerEngine& engine);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -15,9 +16,12 @@ public:
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
+    void timerCallback() override;
 
 private:
     MidiClip& clip;
+    SequencerEngine& engine;
+    bool followPlayhead = true;
 
     // View state
     double scrollX = 0.0;     // beats offset
@@ -68,6 +72,7 @@ private:
     void drawPianoKeys(juce::Graphics& g);
     void drawGrid(juce::Graphics& g);
     void drawNotes(juce::Graphics& g);
+    void drawPlayhead(juce::Graphics& g);
 
     static bool isBlackKey(int note);
     static juce::String noteName(int note);
@@ -78,11 +83,11 @@ private:
 class PianoRollWindow : public juce::DocumentWindow
 {
 public:
-    PianoRollWindow(const juce::String& name, MidiClip& clip)
+    PianoRollWindow(const juce::String& name, MidiClip& clip, SequencerEngine& engine)
         : DocumentWindow(name, juce::Colour(0xff222222), DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar(true);
-        setContentOwned(new PianoRollComponent(clip), false);
+        setContentOwned(new PianoRollComponent(clip, engine), false);
         setSize(800, 500);
         setResizable(true, true);
         centreWithSize(800, 500);
