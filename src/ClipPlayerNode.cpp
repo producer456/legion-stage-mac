@@ -258,11 +258,18 @@ void ClipPlayerNode::stopSlot(int slotIndex)
     auto state = slot.state.load();
 
     // Playing and Armed clips stay in their state — they resume when transport plays again
-    if (state == ClipSlot::Armed || state == ClipSlot::Empty || state == ClipSlot::Playing || state == ClipSlot::Stopped)
+    if (state == ClipSlot::Armed || state == ClipSlot::Empty || state == ClipSlot::Stopped)
+        return;
+
+    if (state == ClipSlot::Playing)
     {
-        // Only send all-notes-off to kill any ringing notes
-        if (state == ClipSlot::Playing)
-            sendAllNotesOff.store(true);
+        sendAllNotesOff.store(true);
+        // If clip has no content, clean it up instead of keeping it in Playing
+        if (!slot.hasContent())
+        {
+            slot.clip = nullptr;
+            slot.state.store(ClipSlot::Empty);
+        }
         return;
     }
 
@@ -271,8 +278,16 @@ void ClipPlayerNode::stopSlot(int slotIndex)
         recordingSlot = -1;
         if (slot.clip != nullptr)
             slot.clip->events.sort();
-        // After recording, go to Playing so the clip plays back on next transport start
-        slot.state.store(slot.hasContent() ? ClipSlot::Playing : ClipSlot::Empty);
+        // After recording, go to Playing only if we captured notes — otherwise clean up
+        if (slot.hasContent())
+        {
+            slot.state.store(ClipSlot::Playing);
+        }
+        else
+        {
+            slot.clip = nullptr;
+            slot.state.store(ClipSlot::Empty);
+        }
         sendAllNotesOff.store(true);
     }
 }
