@@ -601,8 +601,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
         // Route CI SysEx to the handler
         if (midi2Handler.processIncoming(msg))
         {
-            // Send CI responses back to the Keystage
+            // Count and send CI responses back to the Keystage
             auto& outgoing = midi2Handler.getOutgoing();
+            int outCount = outgoing.getNumEvents();
+
             if (!outgoing.isEmpty())
             {
                 auto midiOut = juce::MidiOutput::openDevice(currentMidiDeviceId);
@@ -614,11 +616,26 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                 midi2Handler.clearOutgoing();
             }
 
-            juce::MessageManager::callAsync([this, msg] {
-                auto data = msg.getSysExData();
-                int subId = (msg.getSysExDataSize() > 3) ? data[3] : 0;
-                statusLabel.setText("CI 0x" + juce::String::toHexString(subId)
-                    + (midi2Handler.isConnected() ? " [Connected]" : ""),
+            // Show what CI message was received and how many responses we sent
+            juce::String ciInfo;
+            {
+                auto sdata = msg.getSysExData();
+                int ssize = msg.getSysExDataSize();
+                int subId = (ssize > 3) ? sdata[3] : 0;
+                ciInfo = "CI:0x" + juce::String::toHexString(subId);
+
+                if (subId == 0x34 && ssize > 16)
+                {
+                    int hdrLen = sdata[14] | (sdata[15] << 7);
+                    juce::String hdr;
+                    for (int i = 0; i < hdrLen && (16 + i) < ssize; ++i)
+                        hdr += juce::String::charToString(static_cast<char>(sdata[16 + i]));
+                    ciInfo += " " + hdr;
+                }
+            }
+
+            juce::MessageManager::callAsync([this, ciInfo, outCount] {
+                trackNameLabel.setText(ciInfo + " sent:" + juce::String(outCount),
                     juce::dontSendNotification);
             });
 

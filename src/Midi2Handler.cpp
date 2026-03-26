@@ -167,22 +167,28 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
 
         case 0x34: // Get Property Data
         {
-            if (size < 16) return true;
+            // Extract request ID — it's right after the MUID fields
+            uint8_t requestId = (size > 13) ? data[13] : 1;
 
-            uint8_t requestId = data[13];
-            // Header length (14-15, LSB first)
-            int headerLen = data[14] | (data[15] << 7);
+            // Extract the full raw header to figure out what's being asked
+            juce::String rawContent;
+            for (int i = 13; i < size; ++i)
+                rawContent += juce::String::toHexString(data[i]) + " ";
 
-            // Extract header JSON
+            // Try to find and extract the header JSON
+            // Header length is at bytes 14-15 (after requestId at 13)
             juce::String headerStr;
-            for (int i = 0; i < headerLen && (16 + i) < size; ++i)
-                headerStr += juce::String::charToString(static_cast<char>(data[16 + i]));
+            if (size > 16)
+            {
+                int headerLen = data[14] | (data[15] << 7);
+                for (int i = 0; i < headerLen && (16 + i) < size; ++i)
+                    headerStr += juce::String::charToString(static_cast<char>(data[16 + i]));
+            }
 
-            // Just search the raw header string for resource names
             auto hdrLower = headerStr.toLowerCase();
 
             juce::String responseBody;
-            juce::String responseHeader = "{\"status\":200,\"mediaType\":\"application/json\"}";
+            juce::String responseHeader = "{\"status\":200}";
 
             if (hdrLower.contains("resourcelist"))
                 responseBody = buildResourceList();
@@ -195,9 +201,16 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
             else if (hdrLower.contains("channellist"))
                 responseBody = "[{\"title\":\"DAW3\",\"channel\":1}]";
             else
-                responseHeader = "{\"status\":404}";
+            {
+                // Unknown resource — respond with parameter list anyway for debugging
+                responseBody = buildParameterList();
+            }
 
             sendPropertyReply(srcMuid, requestId, responseHeader, responseBody);
+
+            // Force: always add the outgoing count so we can verify
+            DBG("CI: Sent reply for '" + headerStr + "', outgoing count: " + juce::String(outgoingMidi.getNumEvents()));
+
             return true;
         }
 
