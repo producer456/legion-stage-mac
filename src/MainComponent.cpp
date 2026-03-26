@@ -174,6 +174,23 @@ void MainComponent::setupClipGrid()
 
 void MainComponent::onClipButtonClicked(int trackIndex, int slotIndex)
 {
+    // Shift+click opens piano roll editor
+    if (juce::ModifierKeys::currentModifiers.isShiftDown())
+    {
+        auto* cp = pluginHost.getTrack(trackIndex).clipPlayer;
+        if (cp != nullptr)
+        {
+            auto& slot = cp->getSlot(slotIndex);
+            if (slot.clip != nullptr && slot.hasContent())
+            {
+                new PianoRollWindow("Piano Roll - Track " + juce::String(trackIndex + 1)
+                    + " Slot " + juce::String(slotIndex + 1), *slot.clip,
+                    pluginHost.getEngine());
+            }
+        }
+        return;
+    }
+
     auto* cp = pluginHost.getTrack(trackIndex).clipPlayer;
     if (cp == nullptr) return;
 
