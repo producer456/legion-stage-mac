@@ -83,7 +83,11 @@ MainComponent::MainComponent()
     addAndMakeVisible(clipGridViewport);
     clipGridViewport.setViewedComponent(&clipGridContainer, false);
 
-    setSize(950, 750);
+    // Timeline
+    timelineComponent = std::make_unique<TimelineComponent>(pluginHost);
+    addAndMakeVisible(*timelineComponent);
+
+    setSize(1100, 800);
 
     scanPlugins();
     scanMidiDevices();
@@ -466,15 +470,19 @@ void MainComponent::resized()
     statusLabel.setBounds(area.removeFromBottom(22));
     area.removeFromBottom(4);
 
-    // Track list (left) + clip grid (right)
+    // Top half: track list (left) + clip grid (right)
     int trackListWidth = 280;
     int clipGridWidth = ClipPlayerNode::NUM_SLOTS * 50;
     int trackHeight = 32;
     int totalHeight = PluginHost::NUM_TRACKS * trackHeight;
 
-    trackViewport.setBounds(area.removeFromLeft(trackListWidth));
-    area.removeFromLeft(4);
-    clipGridViewport.setBounds(area.removeFromLeft(clipGridWidth));
+    // Split remaining area: top half for tracks/clips, bottom half for timeline
+    auto topHalf = area.removeFromTop(juce::jmax(200, area.getHeight() / 2));
+    area.removeFromTop(4);
+
+    trackViewport.setBounds(topHalf.removeFromLeft(trackListWidth));
+    topHalf.removeFromLeft(4);
+    clipGridViewport.setBounds(topHalf.removeFromLeft(clipGridWidth));
 
     trackListContainer.setSize(trackListWidth - trackViewport.getScrollBarThickness(), totalHeight);
     clipGridContainer.setSize(clipGridWidth, totalHeight);
@@ -490,6 +498,10 @@ void MainComponent::resized()
             clipButtons[idx]->setBounds(s * 50, t * trackHeight + 2, 46, trackHeight - 4);
         }
     }
+
+    // Bottom: timeline arrangement view
+    if (timelineComponent != nullptr)
+        timelineComponent->setBounds(area);
 }
 
 // ── Computer Keyboard MIDI ───────────────────────────────────────────────────

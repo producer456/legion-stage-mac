@@ -30,6 +30,8 @@ target_sources(Sequencer PRIVATE
     src/SequencerEngine.cpp
     src/PianoRollComponent.h
     src/PianoRollComponent.cpp
+    src/TimelineComponent.h
+    src/TimelineComponent.cpp
 )
 
 target_compile_definitions(Sequencer PRIVATE

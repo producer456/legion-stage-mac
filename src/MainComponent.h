@@ -5,6 +5,7 @@
 #include "PluginHost.h"
 #include "PianoRollComponent.h"
 #include "TrackComponent.h"
+#include "TimelineComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
 {
@@ -76,6 +77,9 @@ private:
     juce::Slider bpmSlider;
     juce::Label bpmLabel;
     juce::Label beatLabel;
+
+    // Timeline
+    std::unique_ptr<TimelineComponent> timelineComponent;
 
     // Status
     juce::Label statusLabel;
