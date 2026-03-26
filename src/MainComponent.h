@@ -39,6 +39,9 @@ public:
     bool keyStateChanged(bool isKeyDown) override;
 
 private:
+    // Transport
+    double lastSpaceStopTime = 0.0;
+
     // Computer keyboard MIDI
     bool useComputerKeyboard = false;
     int computerKeyboardOctave = 4;  // C4 = middle C

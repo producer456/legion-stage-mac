@@ -578,14 +578,36 @@ void MainComponent::sendNoteOff(int note)
 
 bool MainComponent::keyPressed(const juce::KeyPress& key)
 {
-    // Spacebar = play/stop toggle
+    // Spacebar = play/stop toggle, double-tap resets to start
     if (key == juce::KeyPress::spaceKey)
     {
         auto& eng = pluginHost.getEngine();
         if (eng.isPlaying())
+        {
             eng.stop();
+        }
         else
-            eng.play();
+        {
+            // Already stopped — check if this is a quick second tap (reset to start)
+            double timeSinceLastStop = juce::Time::getMillisecondCounterHiRes() - lastSpaceStopTime;
+            if (timeSinceLastStop < 400.0)
+            {
+                eng.resetPosition();
+                for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+                {
+                    auto* cp = pluginHost.getTrack(t).clipPlayer;
+                    if (cp) cp->stopAllSlots();
+                }
+                updateClipButtons();
+                if (timelineComponent != nullptr)
+                    timelineComponent->repaint();
+            }
+            else
+            {
+                eng.play();
+            }
+        }
+        lastSpaceStopTime = eng.isPlaying() ? 0.0 : juce::Time::getMillisecondCounterHiRes();
         return true;
     }
 
