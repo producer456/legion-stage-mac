@@ -132,6 +132,28 @@ MainComponent::MainComponent()
         }
     };
 
+    addAndMakeVisible(countInButton);
+    countInButton.setClickingTogglesState(true);
+    countInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+    countInButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff665533));
+    countInButton.onClick = [this] { pluginHost.getEngine().toggleCountIn(); };
+
+    addAndMakeVisible(zoomInButton);
+    zoomInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+    zoomInButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomIn(); };
+
+    addAndMakeVisible(zoomOutButton);
+    zoomOutButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+    zoomOutButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomOut(); };
+
+    addAndMakeVisible(scrollLeftButton);
+    scrollLeftButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+    scrollLeftButton.onClick = [this] { if (timelineComponent) timelineComponent->scrollLeft(); };
+
+    addAndMakeVisible(scrollRightButton);
+    scrollRightButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+    scrollRightButton.onClick = [this] { if (timelineComponent) timelineComponent->scrollRight(); };
+
     addAndMakeVisible(editClipButton);
     editClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff335566));
     editClipButton.onClick = [this] {
@@ -443,6 +465,8 @@ void MainComponent::resized()
     stopButton.setBounds(topBar.removeFromLeft(55));
     topBar.removeFromLeft(4);
     metronomeButton.setBounds(topBar.removeFromLeft(45));
+    topBar.removeFromLeft(4);
+    countInButton.setBounds(topBar.removeFromLeft(75));
     topBar.removeFromLeft(8);
 
     beatLabel.setBounds(topBar.removeFromRight(90));
@@ -451,9 +475,17 @@ void MainComponent::resized()
     // ── Bottom Bar ──
     auto bottomBar = area.removeFromBottom(bottomBarH).reduced(8, 6);
 
-    volumeSlider.setBounds(bottomBar.removeFromLeft(150));
+    scrollLeftButton.setBounds(bottomBar.removeFromLeft(40));
+    bottomBar.removeFromLeft(2);
+    scrollRightButton.setBounds(bottomBar.removeFromLeft(40));
+    bottomBar.removeFromLeft(4);
+    zoomOutButton.setBounds(bottomBar.removeFromLeft(60));
+    bottomBar.removeFromLeft(2);
+    zoomInButton.setBounds(bottomBar.removeFromLeft(60));
     bottomBar.removeFromLeft(8);
-    panSlider.setBounds(bottomBar.removeFromLeft(100));
+    volumeSlider.setBounds(bottomBar.removeFromLeft(120));
+    bottomBar.removeFromLeft(4);
+    panSlider.setBounds(bottomBar.removeFromLeft(80));
     bottomBar.removeFromLeft(8);
     statusLabel.setBounds(bottomBar);
 

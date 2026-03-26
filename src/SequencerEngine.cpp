@@ -4,6 +4,14 @@ SequencerEngine::SequencerEngine() {}
 
 void SequencerEngine::play()
 {
+    // If count-in is enabled and recording is armed, start count-in first
+    if (countInEnabled.load() && recording.load() && !playing.load())
+    {
+        countingIn.store(true);
+        countInBeatsRemaining = 16.0; // 4 bars
+        savedPosition = positionInBeats.load();
+    }
+
     playing.store(true);
 }
 
@@ -11,7 +19,8 @@ void SequencerEngine::stop()
 {
     playing.store(false);
     recording.store(false);
-    // Don't reset position — double-click stop does that
+    countingIn.store(false);
+    countInBeatsRemaining = 0.0;
 }
 
 void SequencerEngine::toggleRecord()
@@ -24,6 +33,11 @@ void SequencerEngine::setBpm(double newBpm)
     bpm.store(juce::jlimit(20.0, 300.0, newBpm));
 }
 
+void SequencerEngine::toggleCountIn()
+{
+    countInEnabled.store(!countInEnabled.load());
+}
+
 double SequencerEngine::advancePosition(int numSamples, double sampleRate)
 {
     if (!playing.load())
@@ -33,10 +47,44 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
     double beatsPerSecond = currentBpm / 60.0;
     double beatsThisBlock = beatsPerSecond * (static_cast<double>(numSamples) / sampleRate);
 
+    // Handle count-in
+    if (countingIn.load())
+    {
+        countInBeatsRemaining -= beatsThisBlock;
+
+        // Metronome clicks during count-in
+        if (metronomeEnabled.load())
+        {
+            // Calculate beat crossings during count-in
+            double countInPos = 16.0 - countInBeatsRemaining;
+            double prevPos = countInPos - beatsThisBlock;
+
+            int oldBeat = static_cast<int>(std::floor(prevPos));
+            int newBeat = static_cast<int>(std::floor(countInPos));
+
+            if (newBeat > oldBeat)
+            {
+                bool isDownbeat = (newBeat % 4) == 0;
+                clickFrequency = isDownbeat ? 1500.0 : 1000.0;
+                clickSamplesRemaining = static_cast<int>(sampleRate * 0.02);
+                clickPhase = 0.0;
+            }
+        }
+
+        if (countInBeatsRemaining <= 0.0)
+        {
+            // Count-in finished — start actual playback/recording from saved position
+            countingIn.store(false);
+            positionInBeats.store(savedPosition);
+        }
+
+        return 0.0; // Don't advance the main position during count-in
+    }
+
     double oldPos = positionInBeats.load();
     double newPos = oldPos + beatsThisBlock;
 
-    // Check if we crossed a beat boundary — trigger metronome click
+    // Metronome clicks during normal playback
     if (metronomeEnabled.load())
     {
         int oldBeat = static_cast<int>(std::floor(oldPos));
@@ -44,10 +92,9 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
 
         if (newBeat > oldBeat)
         {
-            // Crossed a beat — start a click
             bool isDownbeat = (newBeat % 4) == 0;
             clickFrequency = isDownbeat ? 1500.0 : 1000.0;
-            clickSamplesRemaining = static_cast<int>(sampleRate * 0.02); // 20ms click
+            clickSamplesRemaining = static_cast<int>(sampleRate * 0.02);
             clickPhase = 0.0;
         }
     }
@@ -70,7 +117,6 @@ void SequencerEngine::renderMetronome(juce::AudioBuffer<float>& buffer, int numS
 
     for (int s = 0; s < samplesToRender; ++s)
     {
-        // Sine click with fast envelope decay
         double envelope = static_cast<double>(clickSamplesRemaining - s) /
                           static_cast<double>(clickSamplesRemaining + samplesToRender);
         float sample = static_cast<float>(std::sin(clickPhase) * envelope * 0.4);
@@ -87,4 +133,5 @@ void SequencerEngine::resetPosition()
 {
     positionInBeats.store(0.0);
     clickSamplesRemaining = 0;
+    countingIn.store(false);
 }

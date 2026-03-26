@@ -45,6 +45,12 @@ public:
     double getGridResolution() const { return gridResolution; }
     double snapToGrid(double beat) const;
     void quantizeSelectedClip();
+
+    // Navigation
+    void zoomIn() { pixelsPerBeat = juce::jmin(200.0, pixelsPerBeat * 1.3); repaint(); }
+    void zoomOut() { pixelsPerBeat = juce::jmax(10.0, pixelsPerBeat / 1.3); repaint(); }
+    void scrollLeft() { scrollX = juce::jmax(0.0, scrollX - 4.0); repaint(); }
+    void scrollRight() { scrollX += 4.0; repaint(); }
 private:
 
     // Selection / interaction

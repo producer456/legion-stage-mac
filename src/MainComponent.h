@@ -67,6 +67,13 @@ private:
     juce::TextButton editClipButton { "Edit Notes" };
     juce::TextButton quantizeButton { "Quantize" };
     juce::ComboBox gridSelector;
+    juce::TextButton countInButton { "Count-In" };
+
+    // ── Navigation ──
+    juce::TextButton zoomInButton { "Zoom +" };
+    juce::TextButton zoomOutButton { "Zoom -" };
+    juce::TextButton scrollLeftButton { "<<" };
+    juce::TextButton scrollRightButton { ">>" };
 
     // ── Right Panel ──
     juce::ComboBox pluginSelector;

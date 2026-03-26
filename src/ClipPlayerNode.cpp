@@ -27,8 +27,8 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // Check if we should start recording
-    if (engine.isPlaying() && engine.isRecording() && armed.load() && recordingSlot < 0)
+    // Check if we should start recording (not during count-in)
+    if (engine.isPlaying() && engine.isRecording() && !engine.isInCountIn() && armed.load() && recordingSlot < 0)
     {
         // First check for explicitly armed slots
         int targetSlot = -1;
