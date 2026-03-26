@@ -52,6 +52,7 @@ private:
 
     double currentSampleRate = 44100.0;
     double lastPositionInBeats = 0.0;
+    std::array<bool, NUM_SLOTS> wasInsideClip {}; // track clip exit for note-off
 
     // Recording state
     int recordingSlot = -1;

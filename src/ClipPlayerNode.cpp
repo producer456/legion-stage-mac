@@ -105,6 +105,20 @@ void ClipPlayerNode::processClipPlayback(int slotIndex, juce::MidiBuffer& midi, 
     if (clipLen <= 0.0) return;
 
     double clipTimelineStart = clip.timelinePosition;
+    double clipTimelineEnd = clipTimelineStart + clipLen;
+
+    // Check if playhead just exited this clip — send all-notes-off
+    double blockStartBeat = pos;
+    double blockEndBeat = pos + (numSamples * beatsPerSample);
+    bool isInsideNow = (blockEndBeat > clipTimelineStart && blockStartBeat < clipTimelineEnd);
+
+    if (wasInsideClip[static_cast<size_t>(slotIndex)] && !isInsideNow)
+    {
+        // Just exited the clip — kill all notes
+        for (int ch = 1; ch <= 16; ++ch)
+            midi.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+    }
+    wasInsideClip[static_cast<size_t>(slotIndex)] = isInsideNow;
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
