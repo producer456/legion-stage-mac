@@ -251,13 +251,28 @@ MainComponent::MainComponent()
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin != nullptr)
         {
+            int numPrograms = track.plugin->getNumPrograms();
             int current = track.plugin->getCurrentProgram();
-            if (current > 0)
+
+            if (numPrograms > 1)
             {
-                track.plugin->setCurrentProgram(current - 1);
-                presetNameLabel.setText(track.plugin->getProgramName(track.plugin->getCurrentProgram()),
-                    juce::dontSendNotification);
+                // Standard program change
+                int newProg = (current > 0) ? current - 1 : numPrograms - 1;
+                track.plugin->setCurrentProgram(newProg);
             }
+            else
+            {
+                // Fallback: send MIDI Program Change (works with many plugins including Arturia)
+                int pc = juce::jmax(0, current - 1);
+                auto msg = juce::MidiMessage::programChange(1, pc);
+                msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+                pluginHost.getMidiCollector().addMessageToQueue(msg);
+            }
+
+            // Update display
+            juce::String name = track.plugin->getProgramName(track.plugin->getCurrentProgram());
+            if (name.isEmpty()) name = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
+            presetNameLabel.setText(name, juce::dontSendNotification);
         }
     };
 
@@ -267,13 +282,27 @@ MainComponent::MainComponent()
         auto& track = pluginHost.getTrack(selectedTrackIndex);
         if (track.plugin != nullptr)
         {
+            int numPrograms = track.plugin->getNumPrograms();
             int current = track.plugin->getCurrentProgram();
-            if (current < track.plugin->getNumPrograms() - 1)
+
+            if (numPrograms > 1)
             {
-                track.plugin->setCurrentProgram(current + 1);
-                presetNameLabel.setText(track.plugin->getProgramName(track.plugin->getCurrentProgram()),
-                    juce::dontSendNotification);
+                // Standard program change
+                int newProg = (current < numPrograms - 1) ? current + 1 : 0;
+                track.plugin->setCurrentProgram(newProg);
             }
+            else
+            {
+                // Fallback: send MIDI Program Change
+                int pc = juce::jmin(127, current + 1);
+                auto msg = juce::MidiMessage::programChange(1, pc);
+                msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+                pluginHost.getMidiCollector().addMessageToQueue(msg);
+            }
+
+            juce::String name = track.plugin->getProgramName(track.plugin->getCurrentProgram());
+            if (name.isEmpty()) name = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
+            presetNameLabel.setText(name, juce::dontSendNotification);
         }
     };
 
@@ -420,16 +449,18 @@ void MainComponent::updateTrackDisplay()
     trackInfoLabel.setText(info, juce::dontSendNotification);
 
     // Update preset display
-    if (track.plugin != nullptr && track.plugin->getNumPrograms() > 0)
+    if (track.plugin != nullptr)
     {
-        presetNameLabel.setText(track.plugin->getProgramName(track.plugin->getCurrentProgram()),
-            juce::dontSendNotification);
+        juce::String presetName = track.plugin->getProgramName(track.plugin->getCurrentProgram());
+        if (presetName.isEmpty())
+            presetName = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
+        presetNameLabel.setText(presetName, juce::dontSendNotification);
         prevPresetButton.setEnabled(true);
         nextPresetButton.setEnabled(true);
     }
     else
     {
-        presetNameLabel.setText("No presets", juce::dontSendNotification);
+        presetNameLabel.setText("No plugin", juce::dontSendNotification);
         prevPresetButton.setEnabled(false);
         nextPresetButton.setEnabled(false);
     }
