@@ -37,7 +37,7 @@ private:
     double pixelsPerBeat = 40.0;
     int trackHeight = 56;      // taller for touch-friendly buttons
     int headerHeight = 24;
-    int trackLabelWidth = 160;  // wide enough for big buttons
+    int trackLabelWidth = 120;  // compact — track name with M/S integrated
     double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)
 
 public:

@@ -726,19 +726,20 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
 juce::Rectangle<int> TimelineComponent::getSelectButtonRect(int trackIndex) const
 {
     int y = headerHeight + trackIndex * trackHeight;
-    return { 2, y + 2, 110, trackHeight - 4 };
+    return { 2, y + 2, trackLabelWidth - 28, trackHeight - 4 };
 }
 
 juce::Rectangle<int> TimelineComponent::getMuteButtonRect(int trackIndex) const
 {
     int y = headerHeight + trackIndex * trackHeight;
-    return { 116, y + 2, 18, 24 };
+    return { trackLabelWidth - 24, y + 2, 22, (trackHeight - 6) / 2 };
 }
 
 juce::Rectangle<int> TimelineComponent::getSoloButtonRect(int trackIndex) const
 {
     int y = headerHeight + trackIndex * trackHeight;
-    return { 136, y + 2, 18, 24 };
+    int halfH = (trackHeight - 6) / 2;
+    return { trackLabelWidth - 24, y + 2 + halfH + 2, 22, halfH };
 }
 
 void TimelineComponent::drawTrackControls(juce::Graphics& g)
