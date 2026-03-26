@@ -457,7 +457,7 @@ void Midi2Handler::sendParameterUpdate()
     if (!isConnected() || currentPlugin == nullptr) return;
 
     juce::String body = buildProgramEdit();
-    juce::String header = "{\"status\":200,\"resource\":\"X-ProgramEdit\",\"command\":\"notify\"}";
+    juce::String header = "{\"status\":200,\"subscribeId\":\"xpe1\",\"command\":\"notify\"}";
 
     // Build subscription notification (sub ID 0x38)
     auto headerBytes = encodeJsonForSysex(header);
