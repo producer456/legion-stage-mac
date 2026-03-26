@@ -249,6 +249,7 @@ MainComponent::MainComponent()
     trackInfoLabel.setJustificationType(juce::Justification::topLeft);
     trackInfoLabel.setFont(juce::Font(11.0f));
     trackInfoLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+    trackInfoLabel.setInterceptsMouseClicks(false, false);
 
     addAndMakeVisible(statusLabel);
     statusLabel.setJustificationType(juce::Justification::centred);
@@ -322,6 +323,10 @@ void MainComponent::timerCallback()
         updateTrackDisplay();
         updateStatusLabel();
     }
+
+    // Repaint mini mixer
+    if (!miniMixerBounds.isEmpty())
+        repaint(miniMixerBounds);
 }
 
 // ── Track Selection ──────────────────────────────────────────────────────────
@@ -780,13 +785,18 @@ void MainComponent::loadProject()
 
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
+    grabKeyboardFocus();
+
     // Check if click is in the mini mixer area
     if (!miniMixerBounds.isEmpty() && miniMixerBounds.contains(e.x, e.y))
     {
-        int barWidth = (miniMixerBounds.getWidth() - 2) / 16;
+        int barWidth = juce::jmax(1, (miniMixerBounds.getWidth() - 2) / 16);
         int trackIdx = (e.x - miniMixerBounds.getX()) / barWidth;
         if (trackIdx >= 0 && trackIdx < PluginHost::NUM_TRACKS)
+        {
             selectTrack(trackIdx);
+            repaint(miniMixerBounds);
+        }
     }
 }
 
