@@ -46,12 +46,23 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(stopButton);
     stopButton.onClick = [this] {
-        pluginHost.getEngine().stop();
-        // Stop all clips
-        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        auto& eng = pluginHost.getEngine();
+
+        if (!eng.isPlaying())
         {
-            auto* cp = pluginHost.getTrack(t).clipPlayer;
-            if (cp) cp->stopAllSlots();
+            // Already stopped — this is effectively a double-click: reset to start
+            eng.resetPosition();
+            // Stop all clips
+            for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+            {
+                auto* cp = pluginHost.getTrack(t).clipPlayer;
+                if (cp) cp->stopAllSlots();
+            }
+        }
+        else
+        {
+            // First click — just stop transport, keep position
+            eng.stop();
         }
         updateClipButtons();
     };

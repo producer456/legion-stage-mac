@@ -11,7 +11,7 @@ void SequencerEngine::stop()
 {
     playing.store(false);
     recording.store(false);
-    resetPosition();
+    // Don't reset position — double-click stop does that
 }
 
 void SequencerEngine::toggleRecord()
