@@ -89,12 +89,13 @@ MidiClip* TimelineComponent::getClip(const ClipRef& ref) const
 void TimelineComponent::timerCallback()
 {
     auto& engine = pluginHost.getEngine();
+    double pos = engine.getPositionInBeats();
+    float playheadX = beatToX(pos);
+    float viewWidth = static_cast<float>(getWidth());
+
     if (engine.isPlaying())
     {
-        double pos = engine.getPositionInBeats();
-        float playheadX = beatToX(pos);
-        float viewWidth = static_cast<float>(getWidth());
-
+        // Auto-scroll to follow playhead during playback
         if (playheadX > viewWidth * 0.8f)
             scrollX = pos - (viewWidth * 0.2 - trackLabelWidth) / pixelsPerBeat;
         else if (playheadX < static_cast<float>(trackLabelWidth))
@@ -104,6 +105,16 @@ void TimelineComponent::timerCallback()
         }
 
         repaint();
+    }
+    else
+    {
+        // When stopped, check if playhead moved (e.g. reset to 0) and follow it
+        if (playheadX < static_cast<float>(trackLabelWidth) || playheadX > viewWidth)
+        {
+            scrollX = pos;
+            if (scrollX < 0.0) scrollX = 0.0;
+            repaint();
+        }
     }
 }
 
