@@ -602,6 +602,8 @@ void TimelineComponent::drawClips(juce::Graphics& g)
                 clipColor = juce::Colour(0xff338844);
             else if (state == ClipSlot::Recording)
                 clipColor = juce::Colour(0xff883333);
+            else if (state == ClipSlot::Armed)
+                clipColor = juce::Colour(0xff884400);
             else
                 clipColor = juce::Colour(0xff445566);
 

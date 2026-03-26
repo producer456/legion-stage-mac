@@ -27,10 +27,43 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
+    // Check if any armed slots should start recording (transport just started)
+    if (engine.isPlaying() && engine.isRecording() && recordingSlot < 0)
+    {
+        for (int i = 0; i < NUM_SLOTS; ++i)
+        {
+            if (slots[static_cast<size_t>(i)].state.load() == ClipSlot::Armed)
+            {
+                auto& armSlot = slots[static_cast<size_t>(i)];
+                armSlot.clip->timelinePosition = engine.getPositionInBeats();
+                armSlot.state.store(ClipSlot::Recording);
+                recordingSlot = i;
+                recordStartBeat = engine.getPositionInBeats();
+                break;
+            }
+        }
+    }
+
     // Handle recording — capture incoming MIDI before we add clip playback
     if (recordingSlot >= 0 && engine.isPlaying())
     {
         processRecording(midi, numSamples);
+    }
+
+    // DEBUG: log MIDI activity
+    if (!midi.isEmpty())
+    {
+        for (const auto metadata : midi)
+        {
+            if (metadata.getMessage().isNoteOn())
+            {
+                juce::File logFile(juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("seq-debug.log"));
+                logFile.appendText("MIDI NoteOn=" + juce::String(metadata.getMessage().getNoteNumber())
+                    + " recSlot=" + juce::String(recordingSlot)
+                    + " playing=" + juce::String(engine.isPlaying() ? 1 : 0)
+                    + " armed=" + juce::String(armed.load() ? 1 : 0) + "\n");
+            }
+        }
     }
 
     // Handle playback for all playing clips
@@ -147,42 +180,65 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
     if (slotIndex < 0 || slotIndex >= NUM_SLOTS) return;
 
     auto& slot = slots[static_cast<size_t>(slotIndex)];
+    auto currentState = slot.state.load();
 
-    bool canRecord = armed.load() && engine.isRecording() && engine.isPlaying();
-    bool slotIsEmpty = slot.state.load() == ClipSlot::Empty ||
-                       (slot.clip != nullptr && !slot.hasContent() && slot.state.load() == ClipSlot::Stopped);
+    bool slotIsEmpty = currentState == ClipSlot::Empty ||
+                       (slot.clip != nullptr && !slot.hasContent() && currentState == ClipSlot::Stopped);
 
-    if (slotIsEmpty && canRecord)
+    if (currentState == ClipSlot::Armed)
     {
-        // Start recording
-        if (slot.clip == nullptr)
-        {
-            slot.clip = std::make_unique<MidiClip>();
-            slot.clip->timelinePosition = engine.getPositionInBeats();
-        }
-        slot.state.store(ClipSlot::Recording);
-        recordingSlot = slotIndex;
-        recordStartBeat = engine.getPositionInBeats();
+        // Click armed slot → disarm it
+        slot.state.store(slot.clip != nullptr ? ClipSlot::Stopped : ClipSlot::Empty);
+        return;
     }
-    else if (slot.hasContent() && slot.state.load() != ClipSlot::Playing)
+
+    if (currentState == ClipSlot::Recording)
     {
-        // Start playback
-        stopAllSlots();
-        slot.state.store(ClipSlot::Playing);
-    }
-    else if (slot.state.load() == ClipSlot::Playing)
-    {
-        // Stop playback
-        slot.state.store(ClipSlot::Stopped);
-        sendAllNotesOff.store(true);
-    }
-    else if (slot.state.load() == ClipSlot::Recording)
-    {
-        // Stop recording
+        // Click recording slot → stop recording
         slot.state.store(ClipSlot::Stopped);
         recordingSlot = -1;
         if (slot.clip != nullptr)
             slot.clip->events.sort();
+        return;
+    }
+
+    if (currentState == ClipSlot::Playing)
+    {
+        // Click playing slot → stop playback
+        slot.state.store(ClipSlot::Stopped);
+        sendAllNotesOff.store(true);
+        return;
+    }
+
+    if (slotIsEmpty && armed.load())
+    {
+        if (engine.isRecording() && engine.isPlaying())
+        {
+            // Transport already running with REC → start recording immediately
+            if (slot.clip == nullptr)
+            {
+                slot.clip = std::make_unique<MidiClip>();
+                slot.clip->timelinePosition = engine.getPositionInBeats();
+            }
+            slot.state.store(ClipSlot::Recording);
+            recordingSlot = slotIndex;
+            recordStartBeat = engine.getPositionInBeats();
+        }
+        else
+        {
+            // Transport not running → arm the slot, recording starts when transport plays
+            if (slot.clip == nullptr)
+                slot.clip = std::make_unique<MidiClip>();
+            slot.state.store(ClipSlot::Armed);
+        }
+        return;
+    }
+
+    if (slot.hasContent())
+    {
+        // Click a clip with content → start playback
+        stopAllSlots();
+        slot.state.store(ClipSlot::Playing);
     }
 }
 

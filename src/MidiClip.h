@@ -13,7 +13,7 @@ struct MidiClip
 
 struct ClipSlot
 {
-    enum State { Empty, Stopped, Playing, Recording };
+    enum State { Empty, Stopped, Playing, Recording, Armed };
 
     std::unique_ptr<MidiClip> clip;
     std::atomic<State> state { Empty };

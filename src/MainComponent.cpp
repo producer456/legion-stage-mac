@@ -148,31 +148,15 @@ void MainComponent::setupClipGrid()
     {
         for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
         {
-            auto* btn = new juce::TextButton("");
+            auto* btn = new juce::TextButton(juce::String(s + 1));
+            btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
+            btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff666666));
+            btn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
             btn->onClick = [this, t, s] { onClipButtonClicked(t, s); };
-            // Right-click opens piano roll editor
-            btn->onStateChange = [this, btn, t, s] {
-                if (btn->isDown() && juce::ModifierKeys::currentModifiers.isRightButtonDown())
-                {
-                    auto* cp = pluginHost.getTrack(t).clipPlayer;
-                    if (cp != nullptr)
-                    {
-                        auto& slot = cp->getSlot(s);
-                        if (slot.clip != nullptr)
-                        {
-                            // PianoRollWindow deletes itself on close
-                            new PianoRollWindow("Piano Roll - Track " + juce::String(t + 1)
-                                + " Slot " + juce::String(s + 1), *slot.clip,
-                                pluginHost.getEngine());
-                        }
-                    }
-                }
-            };
-            clipGridContainer.addAndMakeVisible(btn);
+            addAndMakeVisible(btn);
             clipButtons.add(btn);
         }
     }
-    clipGridContainer.setSize(ClipPlayerNode::NUM_SLOTS * 50, PluginHost::NUM_TRACKS * 32);
 }
 
 void MainComponent::onClipButtonClicked(int trackIndex, int slotIndex)
@@ -214,6 +198,10 @@ void MainComponent::updateClipButtons()
                 case ClipSlot::Recording:
                     btn->setButtonText(juce::String::charToString(0x25CF)); // ●
                     btn->setColour(juce::TextButton::buttonColourId, juce::Colours::red.darker());
+                    break;
+                case ClipSlot::Armed:
+                    btn->setButtonText("ARM");
+                    btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff884400));
                     break;
             }
         }
@@ -479,7 +467,7 @@ void MainComponent::resized()
 
     // Top half: track list (left) + clip grid (right)
     int trackListWidth = 280;
-    int clipGridWidth = ClipPlayerNode::NUM_SLOTS * 50;
+    int clipGridWidth = ClipPlayerNode::NUM_SLOTS * 60;
     int trackHeight = 32;
     int totalHeight = PluginHost::NUM_TRACKS * trackHeight;
 
@@ -489,20 +477,23 @@ void MainComponent::resized()
 
     trackViewport.setBounds(topHalf.removeFromLeft(trackListWidth));
     topHalf.removeFromLeft(4);
-    clipGridViewport.setBounds(topHalf.removeFromLeft(clipGridWidth));
+    auto clipArea = topHalf.removeFromLeft(clipGridWidth);
 
     trackListContainer.setSize(trackListWidth - trackViewport.getScrollBarThickness(), totalHeight);
-    clipGridContainer.setSize(clipGridWidth, totalHeight);
 
     for (int i = 0; i < trackComponents.size(); ++i)
         trackComponents[i]->setBounds(0, i * trackHeight, trackListContainer.getWidth(), trackHeight);
 
+    // Position clip buttons directly in the main component
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
         for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
         {
             int idx = t * ClipPlayerNode::NUM_SLOTS + s;
-            clipButtons[idx]->setBounds(s * 50, t * trackHeight + 2, 46, trackHeight - 4);
+            clipButtons[idx]->setBounds(
+                clipArea.getX() + s * 60 + 2,
+                clipArea.getY() + t * trackHeight + 2,
+                56, trackHeight - 4);
         }
     }
 
