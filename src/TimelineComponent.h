@@ -38,6 +38,14 @@ private:
     int trackHeight = 56;      // taller for touch-friendly buttons
     int headerHeight = 24;
     int trackLabelWidth = 160;  // wide enough for big buttons
+    double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)
+
+public:
+    void setGridResolution(double beatsPerGrid) { gridResolution = beatsPerGrid; repaint(); }
+    double getGridResolution() const { return gridResolution; }
+    double snapToGrid(double beat) const;
+    void quantizeSelectedClip();
+private:
 
     // Selection / interaction
     struct ClipRef {

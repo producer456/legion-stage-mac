@@ -105,6 +105,33 @@ MainComponent::MainComponent()
         if (timelineComponent) timelineComponent->splitSelected();
     };
 
+    addAndMakeVisible(quantizeButton);
+    quantizeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
+    quantizeButton.onClick = [this] {
+        if (timelineComponent) timelineComponent->quantizeSelectedClip();
+    };
+
+    addAndMakeVisible(gridSelector);
+    gridSelector.addItem("1/4", 1);
+    gridSelector.addItem("1/8", 2);
+    gridSelector.addItem("1/16", 3);
+    gridSelector.addItem("1/32", 4);
+    gridSelector.setSelectedId(3, juce::dontSendNotification); // default 1/16
+    gridSelector.onChange = [this] {
+        if (timelineComponent)
+        {
+            double res = 1.0;
+            switch (gridSelector.getSelectedId())
+            {
+                case 1: res = 1.0; break;    // 1/4
+                case 2: res = 0.5; break;    // 1/8
+                case 3: res = 0.25; break;   // 1/16
+                case 4: res = 0.125; break;  // 1/32
+            }
+            timelineComponent->setGridResolution(res);
+        }
+    };
+
     addAndMakeVisible(editClipButton);
     editClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff335566));
     editClipButton.onClick = [this] {
@@ -441,6 +468,10 @@ void MainComponent::resized()
     splitClipButton.setBounds(toolbar.removeFromLeft(65));
     toolbar.removeFromLeft(4);
     editClipButton.setBounds(toolbar.removeFromLeft(90));
+    toolbar.removeFromLeft(4);
+    quantizeButton.setBounds(toolbar.removeFromLeft(80));
+    toolbar.removeFromLeft(8);
+    gridSelector.setBounds(toolbar.removeFromLeft(70));
 
     // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);

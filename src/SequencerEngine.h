@@ -31,8 +31,9 @@ public:
     // Called from audio thread — writes metronome click into the buffer
     void renderMetronome(juce::AudioBuffer<float>& buffer, int numSamples, double sampleRate);
 
-    // Reset position to 0
+    // Position control
     void resetPosition();
+    void setPosition(double beats) { positionInBeats.store(beats); }
 
 private:
     std::atomic<bool> playing { false };

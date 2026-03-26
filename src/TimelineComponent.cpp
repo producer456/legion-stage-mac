@@ -127,6 +127,16 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
 
+    // Click on header = jump playhead to that position
+    if (e.y < headerHeight && e.x >= trackLabelWidth)
+    {
+        double beat = snapToGrid(xToBeat(mx));
+        if (beat < 0.0) beat = 0.0;
+        pluginHost.getEngine().setPosition(beat);
+        repaint();
+        return;
+    }
+
     // Handle clicks in the track control area
     if (e.x < trackLabelWidth)
     {
@@ -500,6 +510,37 @@ void TimelineComponent::splitClipAtBeat(const ClipRef& ref, double beat)
     repaint();
 }
 
+double TimelineComponent::snapToGrid(double beat) const
+{
+    return std::round(beat / gridResolution) * gridResolution;
+}
+
+void TimelineComponent::quantizeSelectedClip()
+{
+    auto* clip = getClip(selectedClip);
+    if (clip == nullptr) return;
+
+    juce::MidiMessageSequence quantized;
+
+    for (int i = 0; i < clip->events.getNumEvents(); ++i)
+    {
+        auto* event = clip->events.getEventPointer(i);
+        auto msg = event->message;
+
+        // Snap timestamp to grid
+        double t = msg.getTimeStamp();
+        t = std::round(t / gridResolution) * gridResolution;
+        if (t < 0.0) t = 0.0;
+        msg.setTimeStamp(t);
+
+        quantized.addEvent(msg);
+    }
+
+    quantized.updateMatchedPairs();
+    clip->events = quantized;
+    repaint();
+}
+
 void TimelineComponent::createClipAtPlayhead()
 {
     int trackIdx = pluginHost.getSelectedTrack();
@@ -583,15 +624,17 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
     g.setColour(juce::Colour(0xff2a2a2a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
-    double firstBeat = std::floor(scrollX);
+    double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
     double lastBeat = scrollX + (getWidth() - trackLabelWidth) / pixelsPerBeat;
 
-    for (double beat = firstBeat; beat <= lastBeat; beat += 1.0)
+    // Draw grid lines at the selected resolution
+    for (double beat = firstBeat; beat <= lastBeat; beat += gridResolution)
     {
         float x = beatToX(beat);
         if (x < trackLabelWidth) continue;
 
         bool isBar = std::abs(std::fmod(beat, 4.0)) < 0.001;
+        bool isBeat = std::abs(std::fmod(beat, 1.0)) < 0.001;
 
         if (isBar)
         {
@@ -600,9 +643,17 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
             g.setFont(11.0f);
             g.drawText(juce::String(barNum), static_cast<int>(x) + 2, 0, 40, headerHeight,
                        juce::Justification::centredLeft);
+            g.setColour(juce::Colour(0xff666666));
+        }
+        else if (isBeat)
+        {
+            g.setColour(juce::Colour(0xff444444));
+        }
+        else
+        {
+            g.setColour(juce::Colour(0xff2d2d2d));
         }
 
-        g.setColour(isBar ? juce::Colour(0xff555555) : juce::Colour(0xff333333));
         g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
                            static_cast<float>(getHeight()));
     }

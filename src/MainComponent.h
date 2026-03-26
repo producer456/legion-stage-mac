@@ -65,6 +65,8 @@ private:
     juce::TextButton duplicateClipButton { "Duplicate" };
     juce::TextButton splitClipButton { "Split" };
     juce::TextButton editClipButton { "Edit Notes" };
+    juce::TextButton quantizeButton { "Quantize" };
+    juce::ComboBox gridSelector;
 
     // ── Right Panel ──
     juce::ComboBox pluginSelector;
