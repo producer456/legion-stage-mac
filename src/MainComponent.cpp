@@ -199,23 +199,73 @@ MainComponent::MainComponent()
             auto& track = pluginHost.getTrack(selectedTrackIndex);
             midi2Handler.setPlugin(track.plugin);
 
-            // Send Discovery broadcast to find the Keystage
+            // Find matching MIDI output for the selected input
+            auto midiOutputs = juce::MidiOutput::getAvailableDevices();
+            juce::String outputId;
+
+            // Try to find output with matching name
+            for (auto& out : midiOutputs)
+            {
+                for (auto& in : midiDevices)
+                {
+                    if (in.identifier == currentMidiDeviceId && out.name == in.name)
+                    {
+                        outputId = out.identifier;
+                        break;
+                    }
+                }
+                if (outputId.isNotEmpty()) break;
+            }
+
+            // Fallback: try partial name match
+            if (outputId.isEmpty())
+            {
+                for (auto& in : midiDevices)
+                {
+                    if (in.identifier == currentMidiDeviceId)
+                    {
+                        for (auto& out : midiOutputs)
+                        {
+                            if (out.name.containsIgnoreCase("keystage") ||
+                                in.name.containsIgnoreCase(out.name.substring(0, 8)))
+                            {
+                                outputId = out.identifier;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Send Discovery broadcast
             midi2Handler.sendDiscovery();
 
-            // Send it out through MIDI
-            if (currentMidiDeviceId.isNotEmpty())
+            auto& outgoing = midi2Handler.getOutgoing();
+            if (!outgoing.isEmpty())
             {
-                auto& outgoing = midi2Handler.getOutgoing();
-                auto midiOut = juce::MidiOutput::openDevice(currentMidiDeviceId);
+                // Try matched output first, then fall back to input ID
+                auto midiOut = outputId.isNotEmpty()
+                    ? juce::MidiOutput::openDevice(outputId)
+                    : juce::MidiOutput::openDevice(currentMidiDeviceId);
+
                 if (midiOut)
                 {
                     for (const auto metadata : outgoing)
                         midiOut->sendMessageNow(metadata.getMessage());
+
+                    // Store the working output ID for future CI responses
+                    midiOutputId = outputId.isNotEmpty() ? outputId : currentMidiDeviceId;
+
+                    statusLabel.setText("MIDI 2.0: Discovery sent via " + midiOut->getName(),
+                        juce::dontSendNotification);
+                }
+                else
+                {
+                    statusLabel.setText("MIDI 2.0: No MIDI output found!", juce::dontSendNotification);
                 }
                 midi2Handler.clearOutgoing();
             }
-
-            statusLabel.setText("MIDI 2.0: Discovery sent, waiting...", juce::dontSendNotification);
         }
         else
         {
@@ -607,7 +657,8 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
 
             if (!outgoing.isEmpty())
             {
-                auto midiOut = juce::MidiOutput::openDevice(currentMidiDeviceId);
+                auto sendId = midiOutputId.isNotEmpty() ? midiOutputId : currentMidiDeviceId;
+                auto midiOut = juce::MidiOutput::openDevice(sendId);
                 if (midiOut)
                 {
                     for (const auto metadata : outgoing)
