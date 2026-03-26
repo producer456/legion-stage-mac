@@ -195,4 +195,7 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     engine.advancePosition(buffer.getNumSamples(), storedSampleRate);
 
     AudioProcessorGraph::processBlock(buffer, midiMessages);
+
+    // Render metronome click on top of the output
+    engine.renderMetronome(buffer, buffer.getNumSamples(), storedSampleRate);
 }

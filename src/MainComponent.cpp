@@ -56,6 +56,11 @@ MainComponent::MainComponent()
         updateClipButtons();
     };
 
+    addAndMakeVisible(metronomeButton);
+    metronomeButton.setClickingTogglesState(true);
+    metronomeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff886600));
+    metronomeButton.onClick = [this] { pluginHost.getEngine().toggleMetronome(); };
+
     addAndMakeVisible(bpmSlider);
     bpmSlider.setRange(20.0, 300.0, 1.0);
     bpmSlider.setValue(120.0, juce::dontSendNotification);
@@ -459,6 +464,8 @@ void MainComponent::resized()
     playButton.setBounds(transport.removeFromLeft(55));
     transport.removeFromLeft(4);
     stopButton.setBounds(transport.removeFromLeft(55));
+    transport.removeFromLeft(4);
+    metronomeButton.setBounds(transport.removeFromLeft(45));
     transport.removeFromLeft(8);
     bpmLabel.setBounds(transport.removeFromLeft(35));
     bpmSlider.setBounds(transport.removeFromLeft(150));

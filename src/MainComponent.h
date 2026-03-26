@@ -74,6 +74,7 @@ private:
     juce::TextButton recordButton { "REC" };
     juce::TextButton playButton { "PLAY" };
     juce::TextButton stopButton { "STOP" };
+    juce::TextButton metronomeButton { "MET" };
     juce::Slider bpmSlider;
     juce::Label bpmLabel;
     juce::Label beatLabel;
