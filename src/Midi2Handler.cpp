@@ -39,12 +39,13 @@ void Midi2Handler::buildMappings()
             macroIndices.add(i);
     }
 
-    // Map to CCs 24-31
+    // Map to the Keystage's native knob CCs (0-7)
+    // The X-ParameterList controlcc field tells the Keystage which CC maps to each parameter
     for (int i = 0; i < juce::jmin(8, macroIndices.size()); ++i)
     {
         ParamMapping m;
         m.pluginParamIndex = macroIndices[i];
-        m.cc = 24 + i;
+        m.cc = i; // CCs 0-7 = Keystage native mode knobs
         m.name = params[macroIndices[i]]->getName(16);
         mappings.add(m);
     }

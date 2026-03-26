@@ -689,7 +689,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
             int cc = msg.getControllerNumber();
             int val = msg.getControllerValue();
 
-            if (cc >= 24 && cc <= 31)
+            if (cc >= 0 && cc <= 7)
             {
                 midi2Handler.handleCC(cc, val);
 
@@ -702,6 +702,28 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                     midi2Handler.clearOutgoing();
                 }
             }
+        }
+
+        // Handle Keystage transport buttons (Ch.15 native mode)
+        if (msg.isController() && msg.getControllerValue() == 127)
+        {
+            int tcc = msg.getControllerNumber();
+            if (tcc == 0x29)      // PLAY
+                pluginHost.getEngine().play();
+            else if (tcc == 0x2A) // STOP
+            {
+                auto& eng = pluginHost.getEngine();
+                if (!eng.isPlaying()) { eng.resetPosition(); }
+                else { eng.stop(); for (int t = 0; t < PluginHost::NUM_TRACKS; ++t) { auto* cp = pluginHost.getTrack(t).clipPlayer; if (cp) cp->sendAllNotesOff.store(true); } }
+            }
+            else if (tcc == 0x2D) // REC
+                pluginHost.getEngine().toggleRecord();
+            else if (tcc == 0x2F) // TEMPO — toggle metronome
+                pluginHost.getEngine().toggleMetronome();
+            else if (tcc == 0x3A) // NEXT TRACK
+                selectTrack(juce::jmin(PluginHost::NUM_TRACKS - 1, selectedTrackIndex + 1));
+            else if (tcc == 0x3B) // PREV TRACK
+                selectTrack(juce::jmax(0, selectedTrackIndex - 1));
         }
 
         // Auto-reconnect if connection was lost
