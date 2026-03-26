@@ -185,6 +185,15 @@ void MainComponent::timerCallback()
 {
     double beat = pluginHost.getEngine().getPositionInBeats();
     beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
+
+    // Sync if timeline changed the selected track
+    int currentSelected = pluginHost.getSelectedTrack();
+    if (currentSelected != selectedTrackIndex)
+    {
+        selectedTrackIndex = currentSelected;
+        updateTrackDisplay();
+        updateStatusLabel();
+    }
 }
 
 // ── Track Selection ──────────────────────────────────────────────────────────

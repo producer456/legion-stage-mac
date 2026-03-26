@@ -663,10 +663,11 @@ void TimelineComponent::handleTrackControlClick(int trackIndex, float x, float y
 {
     auto& track = pluginHost.getTrack(trackIndex);
 
-    // Check ARM button
+    // Check ARM button — selects track and toggles arm
     auto armRect = getArmButtonRect(trackIndex);
     if (armRect.toFloat().contains(x, y))
     {
+        pluginHost.setSelectedTrack(trackIndex);
         if (track.clipPlayer != nullptr)
         {
             bool newState = !track.clipPlayer->armed.load();
