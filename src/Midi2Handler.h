@@ -55,7 +55,7 @@ private:
     uint8_t keystageMuid[4] = { 0, 0, 0, 0 };
     bool hasXProgramEditSubscription = false;
     juce::int64 lastUpdateTime = 0;
-    static constexpr int UPDATE_INTERVAL_MS = 30; // max ~33 updates/sec
+    static constexpr int UPDATE_INTERVAL_MS = 15; // max ~66 updates/sec
     int lastChangedParamIndex = -1;
     int currentPage = 0;
 

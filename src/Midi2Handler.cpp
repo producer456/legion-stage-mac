@@ -546,7 +546,33 @@ void Midi2Handler::sendParameterUpdate()
     // Don't queue if there are already pending updates
     if (outgoingMidi.getNumEvents() > 0) return;
 
-    juce::String body = buildProgramEdit();
+    // Send only the changed parameter for speed, or all if unknown
+    juce::String body;
+    if (lastChangedParamIndex >= 0)
+    {
+        // Find which mapping this param belongs to
+        for (auto& m : mappings)
+        {
+            if (m.pluginParamIndex == lastChangedParamIndex)
+            {
+                auto& params = currentPlugin->getParameters();
+                if (m.pluginParamIndex < params.size())
+                {
+                    float fVal = params[m.pluginParamIndex]->getValue();
+                    int val = static_cast<int>(fVal * 127.0f);
+                    body = "{\"currentValues\":[{\"name\":\"" + m.name + "\","
+                           + "\"value\":" + juce::String(val) + ","
+                           + "\"displayValue\":\"" + juce::String(fVal * 100.0f, 1) + "\","
+                           + "\"displayUnit\":\"%\"}]}";
+                }
+                break;
+            }
+        }
+    }
+
+    if (body.isEmpty())
+        body = buildProgramEdit();
+
     juce::String header = "{\"status\":200,\"subscribeId\":\"xpe1\",\"command\":\"notify\"}";
 
     // Build subscription notification (sub ID 0x38)

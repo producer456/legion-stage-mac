@@ -718,8 +718,8 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
             });
         }
 
-        // Transport buttons — trigger on value 127 (button press, not release)
-        if (msg.isController() && msg.getControllerValue() == 127)
+        // Transport/nav buttons — trigger on any non-zero value (button press)
+        if (msg.isController() && msg.getControllerValue() > 0)
         {
             int tcc = msg.getControllerNumber();
             if (tcc == 0x29 || tcc == 41)      // PLAY
