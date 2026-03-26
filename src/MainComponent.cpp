@@ -241,34 +241,29 @@ MainComponent::MainComponent()
             // Send Discovery broadcast
             midi2Handler.sendDiscovery();
 
+            // Open MIDI output and keep it open
+            auto useId = outputId.isNotEmpty() ? outputId : currentMidiDeviceId;
+            midiOutput = juce::MidiOutput::openDevice(useId);
+            midiOutputId = useId;
+
             auto& outgoing = midi2Handler.getOutgoing();
-            if (!outgoing.isEmpty())
+            if (!outgoing.isEmpty() && midiOutput)
             {
-                // Try matched output first, then fall back to input ID
-                auto midiOut = outputId.isNotEmpty()
-                    ? juce::MidiOutput::openDevice(outputId)
-                    : juce::MidiOutput::openDevice(currentMidiDeviceId);
+                for (const auto metadata : outgoing)
+                    midiOutput->sendMessageNow(metadata.getMessage());
 
-                if (midiOut)
-                {
-                    for (const auto metadata : outgoing)
-                        midiOut->sendMessageNow(metadata.getMessage());
-
-                    // Store the working output ID for future CI responses
-                    midiOutputId = outputId.isNotEmpty() ? outputId : currentMidiDeviceId;
-
-                    statusLabel.setText("MIDI 2.0: Discovery sent via " + midiOut->getName(),
-                        juce::dontSendNotification);
-                }
-                else
-                {
-                    statusLabel.setText("MIDI 2.0: No MIDI output found!", juce::dontSendNotification);
-                }
-                midi2Handler.clearOutgoing();
+                statusLabel.setText("MIDI 2.0: Discovery sent via " + midiOutput->getName(),
+                    juce::dontSendNotification);
             }
+            else if (!midiOutput)
+            {
+                statusLabel.setText("MIDI 2.0: No MIDI output found!", juce::dontSendNotification);
+            }
+            midi2Handler.clearOutgoing();
         }
         else
         {
+            midiOutput = nullptr;
             statusLabel.setText("MIDI 2.0 disabled", juce::dontSendNotification);
         }
     };
@@ -655,15 +650,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
             auto& outgoing = midi2Handler.getOutgoing();
             int outCount = outgoing.getNumEvents();
 
-            if (!outgoing.isEmpty())
+            if (!outgoing.isEmpty() && midiOutput)
             {
-                auto sendId = midiOutputId.isNotEmpty() ? midiOutputId : currentMidiDeviceId;
-                auto midiOut = juce::MidiOutput::openDevice(sendId);
-                if (midiOut)
-                {
-                    for (const auto metadata : outgoing)
-                        midiOut->sendMessageNow(metadata.getMessage());
-                }
+                for (const auto metadata : outgoing)
+                    midiOutput->sendMessageNow(metadata.getMessage());
                 midi2Handler.clearOutgoing();
             }
 

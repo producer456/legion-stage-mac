@@ -118,7 +118,8 @@ private:
     Midi2Handler midi2Handler;
     juce::TextButton midi2Button { "MIDI 2.0" };
     bool midi2Enabled = false;
-    juce::String midiOutputId;  // matched output for sending CI responses
+    juce::String midiOutputId;
+    std::unique_ptr<juce::MidiOutput> midiOutput;  // kept open for CI responses
 
     // ── Plugin Parameters ──
     static constexpr int NUM_PARAM_SLIDERS = 6;
