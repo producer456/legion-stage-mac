@@ -42,6 +42,7 @@ public:
 
     // Arm for recording
     std::atomic<bool> armed { false };
+    std::atomic<bool> armLocked { false };  // stays armed when switching tracks
 
     // Flag to send all-notes-off on next processBlock
     std::atomic<bool> sendAllNotesOff { false };

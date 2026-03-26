@@ -714,14 +714,22 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
             label += " " + track.plugin->getName().substring(0, 5);
         g.drawText(label, selRect, juce::Justification::centred);
 
-        // ARM button
+        // ARM button — bright red if locked, dim red if auto-armed
         auto armRect = getArmButtonRect(t);
         bool isArmed = track.clipPlayer != nullptr && track.clipPlayer->armed.load();
-        g.setColour(isArmed ? juce::Colours::red.darker() : juce::Colour(0xff444444));
+        bool isLocked = track.clipPlayer != nullptr && track.clipPlayer->armLocked.load();
+
+        if (isLocked)
+            g.setColour(juce::Colours::red);          // bright red = locked
+        else if (isArmed)
+            g.setColour(juce::Colours::red.darker());  // dim red = auto-armed
+        else
+            g.setColour(juce::Colour(0xff444444));      // gray = not armed
+
         g.fillRoundedRectangle(armRect.toFloat(), 3.0f);
         g.setColour(juce::Colours::white);
         g.setFont(12.0f);
-        g.drawText("A", armRect, juce::Justification::centred);
+        g.drawText(isLocked ? "A!" : "A", armRect, juce::Justification::centred);
 
         // Mute button
         auto muteRect = juce::Rectangle<int>(116, headerHeight + t * trackHeight + 2, 36, 24);
@@ -752,15 +760,24 @@ void TimelineComponent::handleTrackControlClick(int trackIndex, float x, float y
 {
     auto& track = pluginHost.getTrack(trackIndex);
 
-    // Check ARM button — selects track and toggles arm
+    // Check ARM button — shift+click locks arm, regular click selects+arms
     auto armRect = getArmButtonRect(trackIndex);
     if (armRect.toFloat().contains(x, y))
     {
-        pluginHost.setSelectedTrack(trackIndex);
         if (track.clipPlayer != nullptr)
         {
-            bool newState = !track.clipPlayer->armed.load();
-            track.clipPlayer->armed.store(newState);
+            if (juce::ModifierKeys::currentModifiers.isShiftDown())
+            {
+                // Shift+click = toggle lock-arm (stays armed when switching tracks)
+                bool wasLocked = track.clipPlayer->armLocked.load();
+                track.clipPlayer->armLocked.store(!wasLocked);
+                track.clipPlayer->armed.store(!wasLocked);
+            }
+            else
+            {
+                // Regular click = select track (auto-arms via setSelectedTrack)
+                pluginHost.setSelectedTrack(trackIndex);
+            }
         }
         repaint();
         return;

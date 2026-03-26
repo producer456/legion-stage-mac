@@ -151,11 +151,11 @@ void PluginHost::setSelectedTrack(int index)
 {
     if (index < 0 || index >= NUM_TRACKS) return;
 
-    // Disarm previous track
+    // Disarm previous track (unless it's lock-armed)
     if (selectedTrack != index)
     {
         auto& oldTrack = tracks[static_cast<size_t>(selectedTrack)];
-        if (oldTrack.clipPlayer != nullptr)
+        if (oldTrack.clipPlayer != nullptr && !oldTrack.clipPlayer->armLocked.load())
             oldTrack.clipPlayer->armed.store(false);
     }
 
