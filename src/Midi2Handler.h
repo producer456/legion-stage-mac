@@ -30,6 +30,9 @@ public:
     // Send X-ProgramEdit update (call when a parameter changes)
     void sendParameterUpdate();
 
+    // Initiate discovery — send broadcast Discovery message
+    void sendDiscovery();
+
     // Status
     bool isConnected() const { return keystageMuid[0] != 0 || keystageMuid[1] != 0; }
 

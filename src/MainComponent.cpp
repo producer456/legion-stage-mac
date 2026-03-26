@@ -198,7 +198,24 @@ MainComponent::MainComponent()
         {
             auto& track = pluginHost.getTrack(selectedTrackIndex);
             midi2Handler.setPlugin(track.plugin);
-            statusLabel.setText("MIDI 2.0: Waiting for Keystage discovery...", juce::dontSendNotification);
+
+            // Send Discovery broadcast to find the Keystage
+            midi2Handler.sendDiscovery();
+
+            // Send it out through MIDI
+            if (currentMidiDeviceId.isNotEmpty())
+            {
+                auto& outgoing = midi2Handler.getOutgoing();
+                auto midiOut = juce::MidiOutput::openDevice(currentMidiDeviceId);
+                if (midiOut)
+                {
+                    for (const auto metadata : outgoing)
+                        midiOut->sendMessageNow(metadata.getMessage());
+                }
+                midi2Handler.clearOutgoing();
+            }
+
+            statusLabel.setText("MIDI 2.0: Discovery sent, waiting...", juce::dontSendNotification);
         }
         else
         {

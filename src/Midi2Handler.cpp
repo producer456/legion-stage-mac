@@ -69,6 +69,29 @@ void Midi2Handler::handleCC(int ccNumber, int value)
     }
 }
 
+void Midi2Handler::sendDiscovery()
+{
+    // Send Discovery broadcast — same format as the Keystage sends
+    uint8_t broadcastMuid[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+
+    juce::Array<uint8_t> payload;
+
+    // Manufacturer ID
+    payload.add(0x7D); payload.add(0x00); payload.add(0x00);
+    // Family ID
+    payload.add(0x01); payload.add(0x00);
+    // Model Number
+    payload.add(0x01); payload.add(0x00);
+    // Software Revision
+    payload.add(0x01); payload.add(0x00); payload.add(0x00); payload.add(0x00);
+    // Capability (Property Exchange = bit3 = 0x08)
+    payload.add(0x08);
+    // Max SysEx Size (4096)
+    payload.add(0x00); payload.add(0x20); payload.add(0x00); payload.add(0x00);
+
+    addCISysEx(0x70, broadcastMuid, payload); // 0x70 = Discovery
+}
+
 // ── Incoming CI message processing ───────────────────────────────────────────
 
 bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
@@ -93,20 +116,36 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
 
     switch (subId2)
     {
-        case 0x70: // Discovery
+        case 0x70: // Discovery (Keystage is looking for us)
         {
-            // Store Keystage's MUID
             memcpy(keystageMuid, srcMuid, 4);
-
-            // Send Discovery Reply
             sendDiscoveryReply(srcMuid);
             return true;
         }
 
-        case 0x30: // PE Capabilities Inquiry
+        case 0x71: // Discovery Reply (Keystage responded to our Discovery)
+        {
+            memcpy(keystageMuid, srcMuid, 4);
+            // Now send PE Capabilities Inquiry to start property exchange
+            {
+                juce::Array<uint8_t> pePayload;
+                pePayload.add(4); // simultaneous requests
+                addCISysEx(0x30, keystageMuid, pePayload);
+            }
+            return true;
+        }
+
+        case 0x30: // PE Capabilities Inquiry (Keystage asking us)
         {
             uint8_t requestId = (size > 13) ? data[13] : 0;
             sendPECapabilityReply(srcMuid, requestId);
+            return true;
+        }
+
+        case 0x31: // PE Capabilities Reply (Keystage responding to our inquiry)
+        {
+            // Keystage supports PE — now query its ResourceList
+            // (This confirms the CI connection is established)
             return true;
         }
 
