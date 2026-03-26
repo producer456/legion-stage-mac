@@ -55,8 +55,21 @@ private:
     uint8_t keystageMuid[4] = { 0, 0, 0, 0 };
     bool hasXProgramEditSubscription = false;
     juce::int64 lastUpdateTime = 0;
-    static constexpr int UPDATE_INTERVAL_MS = 50; // max 20 updates/sec
+    static constexpr int UPDATE_INTERVAL_MS = 30; // max ~33 updates/sec
     int lastChangedParamIndex = -1;
+    int currentPage = 0;
+    int getNumPages() const;
+
+public:
+    // Page navigation — changes which 8 params are mapped to knobs
+    void nextPage();
+    void prevPage();
+    int getCurrentPage() const { return currentPage; }
+
+    // Preset navigation
+    void nextPreset();
+    void prevPreset();
+private:
 
     // Parameter mappings (up to 8 knobs → CCs 24-31)
     juce::Array<ParamMapping> mappings;

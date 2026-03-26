@@ -23,30 +23,40 @@ void Midi2Handler::buildMappings()
 
     auto& params = currentPlugin->getParameters();
 
-    // Try to find macro parameters first (Arturia)
-    juce::Array<int> macroIndices;
-    for (int i = 0; i < params.size(); ++i)
+    // Page 0: try to find macro parameters first (Arturia)
+    // Other pages: use sequential parameter blocks
+    if (currentPage == 0)
     {
-        juce::String name = params[i]->getName(30).toLowerCase();
-        if (name.contains("macro") || name.contains("mcr"))
-            macroIndices.add(i);
+        juce::Array<int> macroIndices;
+        for (int i = 0; i < params.size(); ++i)
+        {
+            juce::String name = params[i]->getName(30).toLowerCase();
+            if (name.contains("macro") || name.contains("mcr"))
+                macroIndices.add(i);
+        }
+
+        if (!macroIndices.isEmpty())
+        {
+            for (int i = 0; i < juce::jmin(8, macroIndices.size()); ++i)
+            {
+                ParamMapping m;
+                m.pluginParamIndex = macroIndices[i];
+                m.cc = i;
+                m.name = params[macroIndices[i]]->getName(16);
+                mappings.add(m);
+            }
+            return;
+        }
     }
 
-    // If no macros, use first 8 params
-    if (macroIndices.isEmpty())
-    {
-        for (int i = 0; i < juce::jmin(8, params.size()); ++i)
-            macroIndices.add(i);
-    }
-
-    // Map to the Keystage's native knob CCs (0-7)
-    // The X-ParameterList controlcc field tells the Keystage which CC maps to each parameter
-    for (int i = 0; i < juce::jmin(8, macroIndices.size()); ++i)
+    // Use sequential params based on page
+    int startParam = currentPage * 8;
+    for (int i = 0; i < 8 && (startParam + i) < params.size(); ++i)
     {
         ParamMapping m;
-        m.pluginParamIndex = macroIndices[i];
-        m.cc = i; // CCs 0-7 = Keystage native mode knobs
-        m.name = params[macroIndices[i]]->getName(16);
+        m.pluginParamIndex = startParam + i;
+        m.cc = i;
+        m.name = params[startParam + i]->getName(16);
         mappings.add(m);
     }
 }
@@ -80,6 +90,62 @@ void Midi2Handler::handleCC(int ccNumber, int value)
             return;
         }
     }
+}
+
+int Midi2Handler::getNumPages() const
+{
+    if (currentPlugin == nullptr) return 1;
+    int totalParams = currentPlugin->getParameters().size();
+    return juce::jmax(1, (totalParams + 7) / 8);
+}
+
+void Midi2Handler::nextPage()
+{
+    if (currentPlugin == nullptr) return;
+    int maxPage = getNumPages() - 1;
+    if (currentPage < maxPage)
+    {
+        currentPage++;
+        buildMappings();
+        if (isConnected())
+        {
+            pushParameterListToKeystage();
+            pushProgramEditToKeystage();
+        }
+    }
+}
+
+void Midi2Handler::prevPage()
+{
+    if (currentPlugin == nullptr) return;
+    if (currentPage > 0)
+    {
+        currentPage--;
+        buildMappings();
+        if (isConnected())
+        {
+            pushParameterListToKeystage();
+            pushProgramEditToKeystage();
+        }
+    }
+}
+
+void Midi2Handler::nextPreset()
+{
+    if (currentPlugin == nullptr) return;
+    int current = currentPlugin->getCurrentProgram();
+    int total = currentPlugin->getNumPrograms();
+    if (total > 1 && current < total - 1)
+        currentPlugin->setCurrentProgram(current + 1);
+}
+
+void Midi2Handler::prevPreset()
+{
+    if (currentPlugin == nullptr) return;
+    int current = currentPlugin->getCurrentProgram();
+    int total = currentPlugin->getNumPrograms();
+    if (total > 1 && current > 0)
+        currentPlugin->setCurrentProgram(current - 1);
 }
 
 void Midi2Handler::sendDiscovery()

@@ -724,6 +724,59 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                 selectTrack(juce::jmin(PluginHost::NUM_TRACKS - 1, selectedTrackIndex + 1));
             else if (tcc == 0x3B) // PREV TRACK
                 selectTrack(juce::jmax(0, selectedTrackIndex - 1));
+            else if (tcc == 0x3C) // VALUE DOWN → prev preset
+            {
+                midi2Handler.prevPreset();
+                juce::MessageManager::callAsync([this] {
+                    trackNameLabel.setText("Preset: " + pluginHost.getTrack(selectedTrackIndex).plugin->getProgramName(
+                        pluginHost.getTrack(selectedTrackIndex).plugin->getCurrentProgram()), juce::dontSendNotification);
+                });
+            }
+            else if (tcc == 0x3D) // VALUE UP → next preset
+            {
+                midi2Handler.nextPreset();
+                juce::MessageManager::callAsync([this] {
+                    trackNameLabel.setText("Preset: " + pluginHost.getTrack(selectedTrackIndex).plugin->getProgramName(
+                        pluginHost.getTrack(selectedTrackIndex).plugin->getCurrentProgram()), juce::dontSendNotification);
+                });
+            }
+        }
+
+        // Page buttons (these might come as note messages or different CCs)
+        // Also check for value knob left/right as page navigation
+        if (msg.isController() && msg.getControllerValue() == 127)
+        {
+            int tcc = msg.getControllerNumber();
+            if (tcc == 0x3E) // VALUE KNOB LEFT → prev page
+            {
+                midi2Handler.prevPage();
+                auto& ciOut = midi2Handler.getOutgoing();
+                if (!ciOut.isEmpty() && midiOutput)
+                {
+                    for (const auto metadata : ciOut)
+                        midiOutput->sendMessageNow(metadata.getMessage());
+                    midi2Handler.clearOutgoing();
+                }
+                juce::MessageManager::callAsync([this] {
+                    trackNameLabel.setText("Page " + juce::String(midi2Handler.getCurrentPage() + 1),
+                        juce::dontSendNotification);
+                });
+            }
+            else if (tcc == 0x3F) // VALUE KNOB RIGHT → next page
+            {
+                midi2Handler.nextPage();
+                auto& ciOut = midi2Handler.getOutgoing();
+                if (!ciOut.isEmpty() && midiOutput)
+                {
+                    for (const auto metadata : ciOut)
+                        midiOutput->sendMessageNow(metadata.getMessage());
+                    midi2Handler.clearOutgoing();
+                }
+                juce::MessageManager::callAsync([this] {
+                    trackNameLabel.setText("Page " + juce::String(midi2Handler.getCurrentPage() + 1),
+                        juce::dontSendNotification);
+                });
+            }
         }
 
         // Auto-reconnect if connection was lost
