@@ -148,10 +148,18 @@ void ClipPlayerNode::triggerSlot(int slotIndex)
 
     auto& slot = slots[static_cast<size_t>(slotIndex)];
 
-    if (slot.state.load() == ClipSlot::Empty && armed.load() && engine.isRecording())
+    bool canRecord = armed.load() && engine.isRecording() && engine.isPlaying();
+    bool slotIsEmpty = slot.state.load() == ClipSlot::Empty ||
+                       (slot.clip != nullptr && !slot.hasContent() && slot.state.load() == ClipSlot::Stopped);
+
+    if (slotIsEmpty && canRecord)
     {
         // Start recording
-        slot.clip = std::make_unique<MidiClip>();
+        if (slot.clip == nullptr)
+        {
+            slot.clip = std::make_unique<MidiClip>();
+            slot.clip->timelinePosition = engine.getPositionInBeats();
+        }
         slot.state.store(ClipSlot::Recording);
         recordingSlot = slotIndex;
         recordStartBeat = engine.getPositionInBeats();
