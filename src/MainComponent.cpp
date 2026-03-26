@@ -615,7 +615,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
             slot.clip->events.addEvent(cd.events.getEventPointer(e)->message);
         slot.clip->events.updateMatchedPairs();
 
-        slot.state.store(ClipSlot::Stopped);
+        slot.state.store(ClipSlot::Playing);
     }
 
     updateTrackDisplay();
@@ -762,7 +762,7 @@ void MainComponent::loadProject()
                 }
 
                 slot.clip->events.updateMatchedPairs();
-                slot.state.store(ClipSlot::Stopped);
+                slot.state.store(ClipSlot::Playing);
             }
         }
 
