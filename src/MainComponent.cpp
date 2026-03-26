@@ -249,27 +249,25 @@ MainComponent::MainComponent()
     prevPresetButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444455));
     prevPresetButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
-        if (track.plugin != nullptr)
-        {
-            int numPrograms = track.plugin->getNumPrograms();
-            int current = track.plugin->getCurrentProgram();
+        if (track.plugin == nullptr) return;
 
+        if (!arturiaPresets.isEmpty())
+        {
+            // Arturia preset browsing
+            arturiaPresetIndex = juce::jmax(0, arturiaPresetIndex - 1);
+            ArturiaPresetScanner::loadPreset(track.plugin, arturiaPresets[arturiaPresetIndex].file);
+            presetNameLabel.setText(arturiaPresets[arturiaPresetIndex].name, juce::dontSendNotification);
+        }
+        else
+        {
+            // Standard program change
+            int current = track.plugin->getCurrentProgram();
+            int numPrograms = track.plugin->getNumPrograms();
             if (numPrograms > 1)
             {
-                // Standard program change
                 int newProg = (current > 0) ? current - 1 : numPrograms - 1;
                 track.plugin->setCurrentProgram(newProg);
             }
-            else
-            {
-                // Fallback: send MIDI Program Change (works with many plugins including Arturia)
-                int pc = juce::jmax(0, current - 1);
-                auto msg = juce::MidiMessage::programChange(1, pc);
-                msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
-                pluginHost.getMidiCollector().addMessageToQueue(msg);
-            }
-
-            // Update display
             juce::String name = track.plugin->getProgramName(track.plugin->getCurrentProgram());
             if (name.isEmpty()) name = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
             presetNameLabel.setText(name, juce::dontSendNotification);
@@ -280,26 +278,25 @@ MainComponent::MainComponent()
     nextPresetButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444455));
     nextPresetButton.onClick = [this] {
         auto& track = pluginHost.getTrack(selectedTrackIndex);
-        if (track.plugin != nullptr)
-        {
-            int numPrograms = track.plugin->getNumPrograms();
-            int current = track.plugin->getCurrentProgram();
+        if (track.plugin == nullptr) return;
 
+        if (!arturiaPresets.isEmpty())
+        {
+            // Arturia preset browsing
+            arturiaPresetIndex = juce::jmin(arturiaPresets.size() - 1, arturiaPresetIndex + 1);
+            ArturiaPresetScanner::loadPreset(track.plugin, arturiaPresets[arturiaPresetIndex].file);
+            presetNameLabel.setText(arturiaPresets[arturiaPresetIndex].name, juce::dontSendNotification);
+        }
+        else
+        {
+            // Standard program change
+            int current = track.plugin->getCurrentProgram();
+            int numPrograms = track.plugin->getNumPrograms();
             if (numPrograms > 1)
             {
-                // Standard program change
                 int newProg = (current < numPrograms - 1) ? current + 1 : 0;
                 track.plugin->setCurrentProgram(newProg);
             }
-            else
-            {
-                // Fallback: send MIDI Program Change
-                int pc = juce::jmin(127, current + 1);
-                auto msg = juce::MidiMessage::programChange(1, pc);
-                msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
-                pluginHost.getMidiCollector().addMessageToQueue(msg);
-            }
-
             juce::String name = track.plugin->getProgramName(track.plugin->getCurrentProgram());
             if (name.isEmpty()) name = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
             presetNameLabel.setText(name, juce::dontSendNotification);
@@ -448,13 +445,28 @@ void MainComponent::updateTrackDisplay()
     info += "Armed: " + juce::String(track.clipPlayer && track.clipPlayer->armed.load() ? "Yes" : "No");
     trackInfoLabel.setText(info, juce::dontSendNotification);
 
-    // Update preset display
+    // Scan for Arturia presets if plugin name matches
+    arturiaPresets.clear();
+    arturiaPresetIndex = -1;
+
     if (track.plugin != nullptr)
     {
-        juce::String presetName = track.plugin->getProgramName(track.plugin->getCurrentProgram());
-        if (presetName.isEmpty())
-            presetName = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
-        presetNameLabel.setText(presetName, juce::dontSendNotification);
+        juce::String pluginName = track.plugin->getName();
+        arturiaPresets = ArturiaPresetScanner::scanPresets(pluginName);
+
+        if (!arturiaPresets.isEmpty())
+        {
+            arturiaPresetIndex = 0;
+            presetNameLabel.setText(arturiaPresets[0].name + " (" + juce::String(arturiaPresets.size()) + ")",
+                juce::dontSendNotification);
+        }
+        else
+        {
+            juce::String presetName = track.plugin->getProgramName(track.plugin->getCurrentProgram());
+            if (presetName.isEmpty())
+                presetName = "Preset " + juce::String(track.plugin->getCurrentProgram() + 1);
+            presetNameLabel.setText(presetName, juce::dontSendNotification);
+        }
         prevPresetButton.setEnabled(true);
         nextPresetButton.setEnabled(true);
     }
