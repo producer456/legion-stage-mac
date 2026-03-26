@@ -67,6 +67,7 @@ void Midi2Handler::handleCC(int ccNumber, int value)
                 // Throttle OLED updates to prevent MIDI flooding
                 if (hasXProgramEditSubscription && isConnected())
                 {
+                    lastChangedParamIndex = m.pluginParamIndex;
                     juce::int64 now = juce::Time::currentTimeMillis();
                     if (now - lastUpdateTime >= UPDATE_INTERVAL_MS)
                     {
@@ -462,6 +463,9 @@ void Midi2Handler::pushProgramEditToKeystage()
 void Midi2Handler::sendParameterUpdate()
 {
     if (!isConnected() || currentPlugin == nullptr) return;
+
+    // Don't queue if there are already pending updates
+    if (outgoingMidi.getNumEvents() > 0) return;
 
     juce::String body = buildProgramEdit();
     juce::String header = "{\"status\":200,\"subscribeId\":\"xpe1\",\"command\":\"notify\"}";
