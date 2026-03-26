@@ -703,6 +703,19 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput* /*source*/, const
                 }
             }
         }
+
+        // Auto-reconnect if connection was lost
+        if (!midi2Handler.isConnected() && msg.isController())
+        {
+            midi2Handler.sendDiscovery();
+            auto& ciOut = midi2Handler.getOutgoing();
+            if (!ciOut.isEmpty() && midiOutput)
+            {
+                for (const auto metadata : ciOut)
+                    midiOutput->sendMessageNow(metadata.getMessage());
+                midi2Handler.clearOutgoing();
+            }
+        }
     }
 
     // Forward all MIDI to the collector for audio processing

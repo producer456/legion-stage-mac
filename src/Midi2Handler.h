@@ -55,7 +55,7 @@ private:
     uint8_t keystageMuid[4] = { 0, 0, 0, 0 };
     bool hasXProgramEditSubscription = false;
     juce::int64 lastUpdateTime = 0;
-    static constexpr int UPDATE_INTERVAL_MS = 250; // max 4 updates/sec
+    static constexpr int UPDATE_INTERVAL_MS = 50; // max 20 updates/sec
     int lastChangedParamIndex = -1;
 
     // Parameter mappings (up to 8 knobs → CCs 24-31)

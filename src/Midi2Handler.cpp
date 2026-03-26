@@ -113,8 +113,14 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
     auto data = msg.getSysExData();
     auto size = msg.getSysExDataSize();
 
-    // Check for Universal SysEx MIDI-CI header: 7E 7F 0D
-    if (size < 14 || data[0] != 0x7E || data[1] != 0x7F || data[2] != 0x0D)
+    // Only handle Universal SysEx MIDI-CI messages: 7E 7F 0D
+    // Strictly check — reject anything that isn't exactly CI format
+    if (size < 14)
+        return false;
+    if (data[0] != 0x7E || data[1] != 0x7F || data[2] != 0x0D)
+        return false;
+    // Version must be 0x01
+    if (data[4] != 0x01)
         return false;
 
     uint8_t subId2 = data[3];
@@ -289,6 +295,14 @@ bool Midi2Handler::processIncoming(const juce::MidiMessage& msg)
 
                 addCISysEx(0x39, srcMuid, payload);
             }
+            return true;
+        }
+
+        case 0x7E: // Invalidate MUID
+        {
+            // Keystage is resetting — clear our connection state
+            memset(keystageMuid, 0, 4);
+            hasXProgramEditSubscription = false;
             return true;
         }
 
