@@ -186,13 +186,20 @@ void MainComponent::timerCallback()
     double beat = pluginHost.getEngine().getPositionInBeats();
     beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
 
-    // Sync if timeline changed the selected track
+    // Sync if timeline changed the selected track or arm state
     int currentSelected = pluginHost.getSelectedTrack();
     if (currentSelected != selectedTrackIndex)
     {
         selectedTrackIndex = currentSelected;
         updateTrackDisplay();
         updateStatusLabel();
+    }
+    else
+    {
+        // Keep arm button in sync even if track didn't change
+        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
+        if (cp)
+            armButton.setToggleState(cp->armed.load(), juce::dontSendNotification);
     }
 }
 
