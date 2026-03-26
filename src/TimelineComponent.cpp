@@ -804,6 +804,11 @@ void TimelineComponent::handleTrackControlClick(int trackIndex, float x, float y
 
 void TimelineComponent::drawClips(juce::Graphics& g)
 {
+    // Clip drawing to the timeline area only — don't draw over track controls
+    g.saveState();
+    g.reduceClipRegion(trackLabelWidth, headerHeight,
+                       getWidth() - trackLabelWidth, getHeight() - headerHeight);
+
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
         auto* cp = pluginHost.getTrack(t).clipPlayer;
@@ -859,6 +864,8 @@ void TimelineComponent::drawClips(juce::Graphics& g)
             }
         }
     }
+
+    g.restoreState();
 }
 
 void TimelineComponent::drawMiniNotes(juce::Graphics& g, const MidiClip& clip, juce::Rectangle<float> area)
@@ -912,7 +919,7 @@ void TimelineComponent::drawPlayhead(juce::Graphics& g)
     double pos = engine.getPositionInBeats();
     float x = beatToX(pos);
 
-    if (x < trackLabelWidth || x > getWidth()) return;
+    if (x < static_cast<float>(trackLabelWidth) || x > static_cast<float>(getWidth())) return;
 
     g.setColour(juce::Colour(0xddffcc00));
     g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
