@@ -4,7 +4,6 @@
 #include <set>
 #include "PluginHost.h"
 #include "PianoRollComponent.h"
-#include "TrackComponent.h"
 #include "TimelineComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
@@ -43,11 +42,6 @@ private:
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;
 
-    // View mode
-    enum ViewMode { SessionView, ArrangementView };
-    ViewMode viewMode = SessionView;
-    juce::TextButton viewToggleButton { "ARR" };
-
     // Current track
     int selectedTrackIndex = 0;
 
@@ -65,9 +59,6 @@ private:
     juce::Slider bpmSlider;
     juce::Label beatLabel;
 
-    // ── Clip Pads (4 big buttons) ──
-    juce::OwnedArray<juce::TextButton> clipPads;
-
     // ── Right Panel ──
     juce::ComboBox pluginSelector;
     juce::TextButton openEditorButton { "Open Editor" };
@@ -83,7 +74,7 @@ private:
     juce::TextButton armButton { "ARM" };
     juce::Label statusLabel;
 
-    // ── Timeline ──
+    // ── Timeline (arrangement view) ──
     std::unique_ptr<TimelineComponent> timelineComponent;
 
     // Plugin editor
@@ -106,8 +97,6 @@ private:
     // Methods
     void selectTrack(int index);
     void updateTrackDisplay();
-    void onClipPadClicked(int slotIndex);
-    void updateClipPads();
 
     void scanPlugins();
     void loadSelectedPlugin();

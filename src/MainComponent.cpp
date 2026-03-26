@@ -55,14 +55,12 @@ MainComponent::MainComponent()
         else
         {
             eng.stop();
-            // Kill all ringing notes on every track
             for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
             {
                 auto* cp = pluginHost.getTrack(t).clipPlayer;
                 if (cp) cp->sendAllNotesOff.store(true);
             }
         }
-        updateClipPads();
         if (timelineComponent) timelineComponent->repaint();
     };
 
@@ -71,28 +69,6 @@ MainComponent::MainComponent()
     metronomeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     metronomeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff886600));
     metronomeButton.onClick = [this] { pluginHost.getEngine().toggleMetronome(); };
-
-    addAndMakeVisible(viewToggleButton);
-    viewToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555555));
-    viewToggleButton.onClick = [this] {
-        if (viewMode == SessionView)
-        {
-            viewMode = ArrangementView;
-            viewToggleButton.setButtonText("SES");
-            // Hide clip pads, show timeline full
-            for (auto* pad : clipPads) pad->setVisible(false);
-            if (timelineComponent) timelineComponent->setVisible(true);
-        }
-        else
-        {
-            viewMode = SessionView;
-            viewToggleButton.setButtonText("ARR");
-            // Show clip pads, hide timeline
-            for (auto* pad : clipPads) pad->setVisible(true);
-            if (timelineComponent) timelineComponent->setVisible(false);
-        }
-        resized();
-    };
 
     addAndMakeVisible(bpmSlider);
     bpmSlider.setRange(20.0, 300.0, 1.0);
@@ -103,17 +79,6 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(beatLabel);
     beatLabel.setFont(juce::Font(14.0f));
-
-    // ── Clip Pads (4 large buttons) ──
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
-    {
-        auto* pad = new juce::TextButton(juce::String(s + 1));
-        pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff3a3a3a));
-        pad->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-        pad->onClick = [this, s] { onClipPadClicked(s); };
-        addAndMakeVisible(pad);
-        clipPads.add(pad);
-    }
 
     // ── Right Panel ──
     addAndMakeVisible(pluginSelector);
@@ -190,12 +155,11 @@ MainComponent::MainComponent()
     statusLabel.setJustificationType(juce::Justification::centred);
     statusLabel.setFont(juce::Font(12.0f));
 
-    // ── Timeline ──
+    // ── Timeline (arrangement view — always visible) ──
     timelineComponent = std::make_unique<TimelineComponent>(pluginHost);
     addAndMakeVisible(*timelineComponent);
-    timelineComponent->setVisible(false);  // Start in Session view
 
-    setSize(1280, 800);  // Legion Go native-ish
+    setSize(1280, 800);
     setWantsKeyboardFocus(true);
 
     scanPlugins();
@@ -221,7 +185,6 @@ void MainComponent::timerCallback()
 {
     double beat = pluginHost.getEngine().getPositionInBeats();
     beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
-    updateClipPads();
 }
 
 // ── Track Selection ──────────────────────────────────────────────────────────
@@ -232,10 +195,7 @@ void MainComponent::selectTrack(int index)
     pluginHost.setSelectedTrack(selectedTrackIndex);
     closePluginEditor();
     updateTrackDisplay();
-    updateClipPads();
     updateStatusLabel();
-
-    // Reset plugin selector
     pluginSelector.setSelectedId(1, juce::dontSendNotification);
 }
 
@@ -251,7 +211,6 @@ void MainComponent::updateTrackDisplay()
     openEditorButton.setEnabled(track.plugin != nullptr);
     testNoteButton.setEnabled(track.plugin != nullptr);
 
-    // Sync mix controls to this track's state
     if (track.gainProcessor)
     {
         volumeSlider.setValue(track.gainProcessor->volume.load(), juce::dontSendNotification);
@@ -262,69 +221,6 @@ void MainComponent::updateTrackDisplay()
 
     if (track.clipPlayer)
         armButton.setToggleState(track.clipPlayer->armed.load(), juce::dontSendNotification);
-}
-
-// ── Clip Pads ────────────────────────────────────────────────────────────────
-
-void MainComponent::onClipPadClicked(int slotIndex)
-{
-    // Shift+click opens piano roll
-    if (juce::ModifierKeys::currentModifiers.isShiftDown())
-    {
-        auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
-        if (cp != nullptr)
-        {
-            auto& slot = cp->getSlot(slotIndex);
-            if (slot.clip != nullptr && slot.hasContent())
-            {
-                new PianoRollWindow("Piano Roll - Track " + juce::String(selectedTrackIndex + 1),
-                    *slot.clip, pluginHost.getEngine());
-            }
-        }
-        return;
-    }
-
-    auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
-    if (cp == nullptr) return;
-    cp->triggerSlot(slotIndex);
-    updateClipPads();
-}
-
-void MainComponent::updateClipPads()
-{
-    auto* cp = pluginHost.getTrack(selectedTrackIndex).clipPlayer;
-    if (cp == nullptr) return;
-
-    for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
-    {
-        auto& slot = cp->getSlot(s);
-        auto* pad = clipPads[s];
-        auto state = slot.state.load();
-
-        switch (state)
-        {
-            case ClipSlot::Empty:
-                pad->setButtonText(juce::String(s + 1));
-                pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff3a3a3a));
-                break;
-            case ClipSlot::Stopped:
-                pad->setButtonText(juce::String::charToString(0x25A0));
-                pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555555));
-                break;
-            case ClipSlot::Playing:
-                pad->setButtonText(juce::String::charToString(0x25B6));
-                pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff338844));
-                break;
-            case ClipSlot::Recording:
-                pad->setButtonText(juce::String::charToString(0x25CF));
-                pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff993333));
-                break;
-            case ClipSlot::Armed:
-                pad->setButtonText("ARM");
-                pad->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff884400));
-                break;
-        }
-    }
 }
 
 // ── Plugin ───────────────────────────────────────────────────────────────────
@@ -484,13 +380,8 @@ void MainComponent::updateStatusLabel()
 void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff1a1a1a));
-
-    // Divider lines
     g.setColour(juce::Colour(0xff333333));
-
-    auto area = getLocalBounds();
-    int topBarH = 50;
-    g.drawHorizontalLine(topBarH, 0, static_cast<float>(getWidth()));
+    g.drawHorizontalLine(50, 0, static_cast<float>(getWidth()));
 }
 
 void MainComponent::resized()
@@ -499,7 +390,6 @@ void MainComponent::resized()
     int topBarH = 50;
     int bottomBarH = 45;
     int rightPanelW = 200;
-    int timelineH = juce::jmax(120, area.getHeight() / 4);
 
     // ── Top Bar ──
     auto topBar = area.removeFromTop(topBarH).reduced(6, 6);
@@ -518,8 +408,6 @@ void MainComponent::resized()
     stopButton.setBounds(topBar.removeFromLeft(55));
     topBar.removeFromLeft(4);
     metronomeButton.setBounds(topBar.removeFromLeft(45));
-    topBar.removeFromLeft(4);
-    viewToggleButton.setBounds(topBar.removeFromLeft(45));
     topBar.removeFromLeft(8);
 
     beatLabel.setBounds(topBar.removeFromRight(90));
@@ -528,13 +416,9 @@ void MainComponent::resized()
     // ── Bottom Bar ──
     auto bottomBar = area.removeFromBottom(bottomBarH).reduced(8, 6);
 
-    auto volArea = bottomBar.removeFromLeft(150);
-    volumeSlider.setBounds(volArea);
-
+    volumeSlider.setBounds(bottomBar.removeFromLeft(150));
     bottomBar.removeFromLeft(8);
-    auto panArea = bottomBar.removeFromLeft(100);
-    panSlider.setBounds(panArea);
-
+    panSlider.setBounds(bottomBar.removeFromLeft(100));
     bottomBar.removeFromLeft(8);
     muteButton.setBounds(bottomBar.removeFromLeft(35));
     bottomBar.removeFromLeft(4);
@@ -544,7 +428,7 @@ void MainComponent::resized()
     bottomBar.removeFromLeft(8);
     statusLabel.setBounds(bottomBar);
 
-    // ── Right Panel (always visible) ──
+    // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
 
     pluginSelector.setBounds(rightPanel.removeFromTop(32));
@@ -557,36 +441,13 @@ void MainComponent::resized()
     rightPanel.removeFromTop(6);
     audioSettingsButton.setBounds(rightPanel.removeFromTop(36));
 
-    // ── Main Content Area — switches based on view mode ──
-    area.reduce(4, 4);
-
-    if (viewMode == SessionView)
-    {
-        // Clip pads fill the center
-        int padSize = juce::jmin(area.getWidth() / 4 - 8, area.getHeight() - 8);
-        if (padSize < 50) padSize = 50;
-        int totalPadWidth = padSize * 4 + 24;
-        int padStartX = area.getX() + (area.getWidth() - totalPadWidth) / 2;
-        int padY = area.getY() + (area.getHeight() - padSize) / 2;
-
-        for (int s = 0; s < clipPads.size(); ++s)
-            clipPads[s]->setBounds(padStartX + s * (padSize + 8), padY, padSize, padSize);
-
-        if (timelineComponent)
-            timelineComponent->setBounds(0, 0, 0, 0);
-    }
-    else
-    {
-        // Timeline fills the center
-        if (timelineComponent)
-            timelineComponent->setBounds(area);
-
-        for (auto* pad : clipPads)
-            pad->setBounds(0, 0, 0, 0);
-    }
+    // ── Timeline fills the entire center ──
+    area.reduce(2, 2);
+    if (timelineComponent)
+        timelineComponent->setBounds(area);
 }
 
-// ── Keyboard MIDI + Transport ────────────────────────────────────────────────
+// ── Keyboard ─────────────────────────────────────────────────────────────────
 
 int MainComponent::keyToNote(int keyCode) const
 {
@@ -640,7 +501,6 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
                     auto* cp = pluginHost.getTrack(t).clipPlayer;
                     if (cp) cp->stopAllSlots();
                 }
-                updateClipPads();
                 if (timelineComponent) timelineComponent->repaint();
             }
             else
@@ -652,7 +512,7 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    // Left/Right arrows = switch tracks
+    // Arrow keys = switch tracks
     if (key == juce::KeyPress::leftKey) { selectTrack(selectedTrackIndex - 1); return true; }
     if (key == juce::KeyPress::rightKey) { selectTrack(selectedTrackIndex + 1); return true; }
 
