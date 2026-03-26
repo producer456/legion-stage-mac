@@ -18,7 +18,7 @@ void SequencerEngine::play()
 void SequencerEngine::stop()
 {
     playing.store(false);
-    recording.store(false);
+    // Don't clear recording — let the user toggle it manually via the REC button
     countingIn.store(false);
     countInBeatsRemaining = 0.0;
 }
