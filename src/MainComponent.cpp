@@ -212,6 +212,34 @@ MainComponent::MainComponent()
     panLabel.setJustificationType(juce::Justification::centred);
     panLabel.setFont(juce::Font(12.0f));
 
+    addAndMakeVisible(saveButton);
+    saveButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff336644));
+    saveButton.onClick = [this] { saveProject(); };
+
+    addAndMakeVisible(loadButton);
+    loadButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444466));
+    loadButton.onClick = [this] { loadProject(); };
+
+    addAndMakeVisible(undoButton);
+    undoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
+    undoButton.onClick = [this] {
+        if (undoIndex > 0)
+        {
+            undoIndex--;
+            restoreSnapshot(undoHistory[undoIndex]);
+        }
+    };
+
+    addAndMakeVisible(redoButton);
+    redoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
+    redoButton.onClick = [this] {
+        if (undoIndex < undoHistory.size() - 1)
+        {
+            undoIndex++;
+            restoreSnapshot(undoHistory[undoIndex]);
+        }
+    };
+
     addAndMakeVisible(trackInfoLabel);
     trackInfoLabel.setJustificationType(juce::Justification::topLeft);
     trackInfoLabel.setFont(juce::Font(11.0f));
@@ -261,6 +289,21 @@ void MainComponent::timerCallback()
         double beat = eng.getPositionInBeats();
         beatLabel.setText("Beat: " + juce::String(beat, 1), juce::dontSendNotification);
     }
+
+    // Auto-snapshot when recording stops (detect transition)
+    static bool wasRecording = false;
+    bool isRec = false;
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto* cp = pluginHost.getTrack(t).clipPlayer;
+        if (cp != nullptr)
+            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+                if (cp->getSlot(s).state.load() == ClipSlot::Recording)
+                    isRec = true;
+    }
+    if (wasRecording && !isRec)
+        takeSnapshot();
+    wasRecording = isRec;
 
     // Sync if timeline changed the selected track or arm state
     int currentSelected = pluginHost.getSelectedTrack();
@@ -482,6 +525,247 @@ void MainComponent::updateStatusLabel()
     statusLabel.setText(text, juce::dontSendNotification);
 }
 
+// ── Save/Load/Undo ───────────────────────────────────────────────────────────
+
+void MainComponent::takeSnapshot()
+{
+    // Trim future history if we undid something
+    while (undoHistory.size() > undoIndex + 1)
+        undoHistory.removeLast();
+
+    ProjectSnapshot snap;
+    snap.bpm = pluginHost.getEngine().getBpm();
+
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto* cp = pluginHost.getTrack(t).clipPlayer;
+        if (cp == nullptr) continue;
+
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            auto& slot = cp->getSlot(s);
+            if (slot.clip != nullptr && slot.hasContent())
+            {
+                ProjectSnapshot::ClipData cd;
+                cd.trackIndex = t;
+                cd.slotIndex = s;
+                cd.lengthInBeats = slot.clip->lengthInBeats;
+                cd.timelinePosition = slot.clip->timelinePosition;
+
+                for (int e = 0; e < slot.clip->events.getNumEvents(); ++e)
+                    cd.events.addEvent(slot.clip->events.getEventPointer(e)->message);
+                cd.events.updateMatchedPairs();
+
+                snap.clips.add(std::move(cd));
+            }
+        }
+    }
+
+    undoHistory.add(std::move(snap));
+    undoIndex = undoHistory.size() - 1;
+
+    // Limit history
+    if (undoHistory.size() > 50)
+    {
+        undoHistory.remove(0);
+        undoIndex--;
+    }
+}
+
+void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
+{
+    // Clear all clips
+    for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+    {
+        auto* cp = pluginHost.getTrack(t).clipPlayer;
+        if (cp == nullptr) continue;
+
+        for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+        {
+            auto& slot = cp->getSlot(s);
+            slot.clip = nullptr;
+            slot.state.store(ClipSlot::Empty);
+        }
+    }
+
+    pluginHost.getEngine().setBpm(snap.bpm);
+    bpmSlider.setValue(snap.bpm, juce::dontSendNotification);
+
+    // Restore clips
+    for (auto& cd : snap.clips)
+    {
+        auto* cp = pluginHost.getTrack(cd.trackIndex).clipPlayer;
+        if (cp == nullptr) continue;
+
+        auto& slot = cp->getSlot(cd.slotIndex);
+        slot.clip = std::make_unique<MidiClip>();
+        slot.clip->lengthInBeats = cd.lengthInBeats;
+        slot.clip->timelinePosition = cd.timelinePosition;
+
+        for (int e = 0; e < cd.events.getNumEvents(); ++e)
+            slot.clip->events.addEvent(cd.events.getEventPointer(e)->message);
+        slot.clip->events.updateMatchedPairs();
+
+        slot.state.store(ClipSlot::Stopped);
+    }
+
+    updateTrackDisplay();
+    if (timelineComponent) timelineComponent->repaint();
+}
+
+void MainComponent::saveProject()
+{
+    auto chooser = std::make_shared<juce::FileChooser>("Save Project",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.seqproj");
+
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file == juce::File()) return;
+        auto xml = std::make_unique<juce::XmlElement>("SequencerProject");
+        xml->setAttribute("bpm", pluginHost.getEngine().getBpm());
+
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto& track = pluginHost.getTrack(t);
+
+            auto* trackXml = xml->createNewChildElement("Track");
+            trackXml->setAttribute("index", t);
+
+            if (track.gainProcessor)
+            {
+                trackXml->setAttribute("volume", static_cast<double>(track.gainProcessor->volume.load()));
+                trackXml->setAttribute("pan", static_cast<double>(track.gainProcessor->pan.load()));
+                trackXml->setAttribute("muted", track.gainProcessor->muted.load());
+                trackXml->setAttribute("soloed", track.gainProcessor->soloed.load());
+            }
+
+            if (track.plugin)
+                trackXml->setAttribute("pluginName", track.plugin->getName());
+
+            auto* cp = track.clipPlayer;
+            if (cp == nullptr) continue;
+
+            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            {
+                auto& slot = cp->getSlot(s);
+                if (slot.clip == nullptr || !slot.hasContent()) continue;
+
+                auto* clipXml = trackXml->createNewChildElement("Clip");
+                clipXml->setAttribute("slot", s);
+                clipXml->setAttribute("length", slot.clip->lengthInBeats);
+                clipXml->setAttribute("position", slot.clip->timelinePosition);
+
+                for (int e = 0; e < slot.clip->events.getNumEvents(); ++e)
+                {
+                    auto* event = slot.clip->events.getEventPointer(e);
+                    auto* noteXml = clipXml->createNewChildElement("Event");
+                    noteXml->setAttribute("time", event->message.getTimeStamp());
+                    noteXml->setAttribute("data", juce::String::toHexString(
+                        event->message.getRawData(), event->message.getRawDataSize()));
+                }
+            }
+        }
+
+        xml->writeTo(file);
+        statusLabel.setText("Saved: " + file.getFileName(), juce::dontSendNotification);
+    });
+}
+
+void MainComponent::loadProject()
+{
+    auto chooser = std::make_shared<juce::FileChooser>("Load Project",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.seqproj");
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file == juce::File()) return;
+
+        auto xml = juce::parseXML(file);
+
+        if (xml == nullptr || !xml->hasTagName("SequencerProject"))
+        {
+            statusLabel.setText("Invalid project file", juce::dontSendNotification);
+            return;
+        }
+
+        // Clear all clips first
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto* cp = pluginHost.getTrack(t).clipPlayer;
+            if (cp == nullptr) continue;
+            for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
+            {
+                cp->getSlot(s).clip = nullptr;
+                cp->getSlot(s).state.store(ClipSlot::Empty);
+            }
+        }
+
+        double bpm = xml->getDoubleAttribute("bpm", 120.0);
+        pluginHost.getEngine().setBpm(bpm);
+        bpmSlider.setValue(bpm, juce::dontSendNotification);
+
+        for (auto* trackXml : xml->getChildWithTagNameIterator("Track"))
+        {
+            int t = trackXml->getIntAttribute("index", -1);
+            if (t < 0 || t >= PluginHost::NUM_TRACKS) continue;
+
+            auto& track = pluginHost.getTrack(t);
+
+            if (track.gainProcessor)
+            {
+                track.gainProcessor->volume.store(static_cast<float>(trackXml->getDoubleAttribute("volume", 0.8)));
+                track.gainProcessor->pan.store(static_cast<float>(trackXml->getDoubleAttribute("pan", 0.0)));
+                track.gainProcessor->muted.store(trackXml->getBoolAttribute("muted", false));
+                track.gainProcessor->soloed.store(trackXml->getBoolAttribute("soloed", false));
+            }
+
+            auto* cp = track.clipPlayer;
+            if (cp == nullptr) continue;
+
+            for (auto* clipXml : trackXml->getChildWithTagNameIterator("Clip"))
+            {
+                int s = clipXml->getIntAttribute("slot", -1);
+                if (s < 0 || s >= ClipPlayerNode::NUM_SLOTS) continue;
+
+                auto& slot = cp->getSlot(s);
+                slot.clip = std::make_unique<MidiClip>();
+                slot.clip->lengthInBeats = clipXml->getDoubleAttribute("length", 4.0);
+                slot.clip->timelinePosition = clipXml->getDoubleAttribute("position", 0.0);
+
+                for (auto* noteXml : clipXml->getChildWithTagNameIterator("Event"))
+                {
+                    double time = noteXml->getDoubleAttribute("time", 0.0);
+                    auto hexData = noteXml->getStringAttribute("data");
+
+                    juce::MemoryBlock mb;
+                    mb.loadFromHexString(hexData);
+
+                    if (mb.getSize() > 0)
+                    {
+                        auto msg = juce::MidiMessage(mb.getData(), static_cast<int>(mb.getSize()));
+                        msg.setTimeStamp(time);
+                        slot.clip->events.addEvent(msg);
+                    }
+                }
+
+                slot.clip->events.updateMatchedPairs();
+                slot.state.store(ClipSlot::Stopped);
+            }
+        }
+
+        updateTrackDisplay();
+        if (timelineComponent) timelineComponent->repaint();
+        statusLabel.setText("Loaded: " + file.getFileName(), juce::dontSendNotification);
+
+        // Take snapshot for undo
+        takeSnapshot();
+    });
+}
+
 // ── Layout ───────────────────────────────────────────────────────────────────
 
 void MainComponent::paint(juce::Graphics& g)
@@ -578,8 +862,22 @@ void MainComponent::resized()
 
     rightPanel.removeFromTop(8);
 
-    // Track info fills remaining space
-    trackInfoLabel.setBounds(rightPanel);
+    // Track info
+    trackInfoLabel.setBounds(rightPanel.removeFromTop(70));
+    rightPanel.removeFromTop(8);
+
+    // Save/Load
+    auto saveLoadRow = rightPanel.removeFromTop(32);
+    saveButton.setBounds(saveLoadRow.removeFromLeft(saveLoadRow.getWidth() / 2 - 2));
+    saveLoadRow.removeFromLeft(4);
+    loadButton.setBounds(saveLoadRow);
+    rightPanel.removeFromTop(4);
+
+    // Undo/Redo
+    auto undoRow = rightPanel.removeFromTop(32);
+    undoButton.setBounds(undoRow.removeFromLeft(undoRow.getWidth() / 2 - 2));
+    undoRow.removeFromLeft(4);
+    redoButton.setBounds(undoRow);
 
     // ── Timeline fills the entire center ──
     area.reduce(2, 2);

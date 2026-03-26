@@ -82,6 +82,31 @@ private:
     juce::TextButton audioSettingsButton { "Audio Settings" };
     juce::TextButton testNoteButton { "Test Note" };
 
+    // ── Right Panel — Save/Load/Undo ──
+    juce::TextButton saveButton { "Save" };
+    juce::TextButton loadButton { "Load" };
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
+
+    // Undo system — stores snapshots of clip data
+    struct ProjectSnapshot {
+        struct ClipData {
+            juce::MidiMessageSequence events;
+            double lengthInBeats = 4.0;
+            double timelinePosition = 0.0;
+            int trackIndex = 0;
+            int slotIndex = 0;
+        };
+        juce::Array<ClipData> clips;
+        double bpm = 120.0;
+    };
+    juce::Array<ProjectSnapshot> undoHistory;
+    int undoIndex = -1;
+    void takeSnapshot();
+    void restoreSnapshot(const ProjectSnapshot& snap);
+    void saveProject();
+    void loadProject();
+
     // ── Right Panel — Mix + Info ──
     juce::Slider volumeSlider;
     juce::Label volumeLabel { {}, "Vol" };
