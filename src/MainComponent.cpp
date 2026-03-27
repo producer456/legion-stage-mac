@@ -2,12 +2,20 @@
 
 MainComponent::MainComponent()
 {
+    themeManager.setTheme(ThemeManager::Ice, this);
+
     auto result = deviceManager.initialiseWithDefaultDevices(0, 2);
     if (result.isNotEmpty())
         DBG("Audio device init error: " + result);
 
     audioPlayer.setProcessor(&pluginHost);
     deviceManager.addAudioCallback(&audioPlayer);
+
+    addAndMakeVisible(spectrumDisplay);
+    pluginHost.spectrumDisplay = &spectrumDisplay;
+
+    addAndMakeVisible(lissajousDisplay);
+    pluginHost.lissajousDisplay = &lissajousDisplay;
 
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
@@ -26,21 +34,17 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(trackNameLabel);
     trackNameLabel.setJustificationType(juce::Justification::centred);
-    trackNameLabel.setFont(juce::Font(18.0f, juce::Font::bold));
-    trackNameLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    trackNameLabel.setFont(juce::Font("Consolas", 16.0f, juce::Font::bold));
+    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(themeManager.getColors().amber));
 
     addAndMakeVisible(recordButton);
     recordButton.setClickingTogglesState(true);
-    recordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
-    recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::red.darker());
     recordButton.onClick = [this] { pluginHost.getEngine().toggleRecord(); };
 
     addAndMakeVisible(playButton);
-    playButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff336633));
     playButton.onClick = [this] { pluginHost.getEngine().play(); };
 
     addAndMakeVisible(stopButton);
-    stopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     stopButton.onClick = [this] {
         auto& eng = pluginHost.getEngine();
         if (!eng.isPlaying())
@@ -66,51 +70,54 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(metronomeButton);
     metronomeButton.setClickingTogglesState(true);
-    metronomeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
-    metronomeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff886600));
     metronomeButton.onClick = [this] { pluginHost.getEngine().toggleMetronome(); };
 
-    addAndMakeVisible(bpmSlider);
-    bpmSlider.setRange(20.0, 300.0, 1.0);
-    bpmSlider.setValue(120.0, juce::dontSendNotification);
-    bpmSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    bpmSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 45, 25);
-    bpmSlider.onValueChange = [this] { pluginHost.getEngine().setBpm(bpmSlider.getValue()); };
+    addAndMakeVisible(bpmDownButton);
+    bpmDownButton.onClick = [this] {
+        double bpm = juce::jmax(20.0, pluginHost.getEngine().getBpm() - 1.0);
+        pluginHost.getEngine().setBpm(bpm);
+        bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
+    };
+
+    addAndMakeVisible(bpmLabel);
+    bpmLabel.setText("120 BPM", juce::dontSendNotification);
+    bpmLabel.setJustificationType(juce::Justification::centred);
+
+    addAndMakeVisible(bpmUpButton);
+    bpmUpButton.onClick = [this] {
+        double bpm = juce::jmin(300.0, pluginHost.getEngine().getBpm() + 1.0);
+        pluginHost.getEngine().setBpm(bpm);
+        bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
+    };
 
     addAndMakeVisible(beatLabel);
-    beatLabel.setFont(juce::Font(14.0f));
 
     // ── Edit Toolbar ──
     addAndMakeVisible(newClipButton);
-    newClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff336655));
     newClipButton.onClick = [this] {
         takeSnapshot();
         if (timelineComponent) timelineComponent->createClipAtPlayhead();
     };
 
     addAndMakeVisible(deleteClipButton);
-    deleteClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff553333));
     deleteClipButton.onClick = [this] {
         takeSnapshot();
         if (timelineComponent) timelineComponent->deleteSelected();
     };
 
     addAndMakeVisible(duplicateClipButton);
-    duplicateClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff335555));
     duplicateClipButton.onClick = [this] {
         takeSnapshot();
         if (timelineComponent) timelineComponent->duplicateSelected();
     };
 
     addAndMakeVisible(splitClipButton);
-    splitClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555533));
     splitClipButton.onClick = [this] {
         takeSnapshot();
         if (timelineComponent) timelineComponent->splitSelected();
     };
 
     addAndMakeVisible(quantizeButton);
-    quantizeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
     quantizeButton.onClick = [this] {
         takeSnapshot();
         if (timelineComponent) timelineComponent->quantizeSelectedClip();
@@ -139,28 +146,49 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(countInButton);
     countInButton.setClickingTogglesState(true);
-    countInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
-    countInButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff665533));
     countInButton.onClick = [this] { pluginHost.getEngine().toggleCountIn(); };
 
+    addAndMakeVisible(loopButton);
+    loopButton.setClickingTogglesState(true);
+    loopButton.onClick = [this] { pluginHost.getEngine().toggleLoop(); };
+
+    addAndMakeVisible(panicButton);
+    panicButton.onClick = [this] {
+        for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
+        {
+            auto& track = pluginHost.getTrack(t);
+            if (track.plugin != nullptr)
+            {
+                juce::MidiBuffer panic;
+                for (int ch = 1; ch <= 16; ++ch)
+                {
+                    panic.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+                    panic.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+                    panic.addEvent(juce::MidiMessage::allControllersOff(ch), 0);
+                }
+                juce::AudioBuffer<float> dummy(2, 64);
+                dummy.clear();
+                track.plugin->processBlock(dummy, panic);
+            }
+            if (track.clipPlayer)
+                track.clipPlayer->sendAllNotesOff.store(true);
+        }
+        statusLabel.setText("MIDI Panic — all notes off", juce::dontSendNotification);
+    };
+
     addAndMakeVisible(zoomInButton);
-    zoomInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     zoomInButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomIn(); };
 
     addAndMakeVisible(zoomOutButton);
-    zoomOutButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     zoomOutButton.onClick = [this] { if (timelineComponent) timelineComponent->zoomOut(); };
 
     addAndMakeVisible(scrollLeftButton);
-    scrollLeftButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     scrollLeftButton.onClick = [this] { if (timelineComponent) timelineComponent->scrollLeft(); };
 
     addAndMakeVisible(scrollRightButton);
-    scrollRightButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     scrollRightButton.onClick = [this] { if (timelineComponent) timelineComponent->scrollRight(); };
 
     addAndMakeVisible(editClipButton);
-    editClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff335566));
     editClipButton.onClick = [this] {
         if (timelineComponent)
         {
@@ -178,11 +206,22 @@ MainComponent::MainComponent()
     openEditorButton.onClick = [this] { openPluginEditor(); };
     openEditorButton.setEnabled(false);
 
+    // Preset browser
+    addAndMakeVisible(presetPrevButton);
+    presetPrevButton.onClick = [this] { changePreset(-1); };
+
+    addAndMakeVisible(presetNameLabel);
+    presetNameLabel.setText("No Preset", juce::dontSendNotification);
+    presetNameLabel.setJustificationType(juce::Justification::centred);
+    presetNameLabel.setFont(juce::Font(11.0f));
+
+    addAndMakeVisible(presetNextButton);
+    presetNextButton.onClick = [this] { changePreset(1); };
+
     addAndMakeVisible(midiInputSelector);
     midiInputSelector.onChange = [this] { selectMidiDevice(); };
 
     addAndMakeVisible(midiRefreshButton);
-    midiRefreshButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
     midiRefreshButton.onClick = [this] { scanMidiDevices(); };
 
     addAndMakeVisible(audioSettingsButton);
@@ -190,8 +229,6 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(midi2Button);
     midi2Button.setClickingTogglesState(true);
-    midi2Button.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444444));
-    midi2Button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff446688));
     midi2Button.onClick = [this] {
         midi2Enabled = midi2Button.getToggleState();
         if (midi2Enabled)
@@ -268,9 +305,7 @@ MainComponent::MainComponent()
         }
     };
 
-    addAndMakeVisible(testNoteButton);
-    testNoteButton.onClick = [this] { playTestNote(); };
-    testNoteButton.setEnabled(false);
+    testNoteButton.setVisible(false);
 
     // ── Bottom Bar: Mix Controls ──
     addAndMakeVisible(volumeSlider);
@@ -302,15 +337,12 @@ MainComponent::MainComponent()
     panLabel.setFont(juce::Font(12.0f));
 
     addAndMakeVisible(saveButton);
-    saveButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff336644));
     saveButton.onClick = [this] { saveProject(); };
 
     addAndMakeVisible(loadButton);
-    loadButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff444466));
     loadButton.onClick = [this] { loadProject(); };
 
     addAndMakeVisible(undoButton);
-    undoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
     undoButton.onClick = [this] {
         if (undoIndex > 0)
         {
@@ -320,7 +352,6 @@ MainComponent::MainComponent()
     };
 
     addAndMakeVisible(redoButton);
-    redoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff555544));
     redoButton.onClick = [this] {
         if (undoIndex < undoHistory.size() - 1)
         {
@@ -329,11 +360,21 @@ MainComponent::MainComponent()
         }
     };
 
-    addAndMakeVisible(trackInfoLabel);
-    trackInfoLabel.setJustificationType(juce::Justification::topLeft);
-    trackInfoLabel.setFont(juce::Font(11.0f));
-    trackInfoLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
-    trackInfoLabel.setInterceptsMouseClicks(false, false);
+    // ── Theme Selector ──
+    addAndMakeVisible(themeSelector);
+    for (int i = 0; i < ThemeManager::NumThemes; ++i)
+        themeSelector.addItem(ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)), i + 1);
+    themeSelector.setSelectedId(ThemeManager::Ice + 1, juce::dontSendNotification);
+    themeSelector.onChange = [this] {
+        auto idx = themeSelector.getSelectedId() - 1;
+        if (idx >= 0 && idx < ThemeManager::NumThemes)
+        {
+            themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
+            applyThemeToControls();
+        }
+    };
+
+    trackInfoLabel.setVisible(false);
 
     // Plugin parameter sliders
     for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
@@ -410,11 +451,17 @@ MainComponent::MainComponent()
     // Initial undo snapshot
     takeSnapshot();
 
+    // Apply initial theme colors to all controls
+    applyThemeToControls();
+
     startTimerHz(15);
 }
 
 MainComponent::~MainComponent()
 {
+    pluginHost.spectrumDisplay = nullptr;
+    pluginHost.lissajousDisplay = nullptr;
+    setLookAndFeel(nullptr);  // clear before ThemeManager destructs
     stopTimer();
     disableCurrentMidiDevice();
     closePluginEditor();
@@ -488,6 +535,7 @@ void MainComponent::updateTrackDisplay()
 
     openEditorButton.setEnabled(track.plugin != nullptr);
     testNoteButton.setEnabled(track.plugin != nullptr);
+    loadPresetList();
 
     if (track.gainProcessor)
     {
@@ -913,34 +961,99 @@ void MainComponent::updateParamSliders()
     }
 
     auto& allParams = track.plugin->getParameters();
+    juce::String pluginName = track.plugin->getName().toLowerCase();
 
-    // First, try to find Macro parameters (Arturia plugins)
     juce::Array<juce::AudioProcessorParameter*> selectedParams;
 
-    for (auto* param : allParams)
+    // ── Plugin-specific parameter mappings ──
+
+    // u-he Diva: filter, oscillators, envelope
+    if (pluginName.contains("diva"))
     {
-        juce::String name = param->getName(30).toLowerCase();
-        if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
-            selectedParams.add(param);
+        juce::StringArray wanted = { "cutoff", "resonance", "hpf", "vco mix",
+                                      "env2 att", "env2 dec" };
+        for (auto& w : wanted)
+        {
+            for (auto* param : allParams)
+            {
+                if (param->getName(30).toLowerCase().contains(w))
+                { selectedParams.add(param); break; }
+            }
+            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+        }
+    }
+    // u-he Hive: macros then filter
+    else if (pluginName.contains("hive"))
+    {
+        juce::StringArray wanted = { "macro 1", "macro 2", "macro 3", "macro 4",
+                                      "cutoff", "resonance" };
+        for (auto& w : wanted)
+        {
+            for (auto* param : allParams)
+            {
+                if (param->getName(30).toLowerCase().contains(w))
+                { selectedParams.add(param); break; }
+            }
+            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+        }
+    }
+    // Arturia Pigments: macros
+    else if (pluginName.contains("pigments"))
+    {
+        juce::StringArray wanted = { "macro 1", "macro 2", "macro 3",
+                                      "macro 4", "macro 5", "macro 6" };
+        for (auto& w : wanted)
+        {
+            for (auto* param : allParams)
+            {
+                if (param->getName(30).toLowerCase().contains(w))
+                { selectedParams.add(param); break; }
+            }
+            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+        }
+    }
+    // Arturia Analog Lab / any Arturia — look for macros first
+    else if (pluginName.contains("analog lab") || pluginName.contains("arturia") ||
+             pluginName.contains("jun-6") || pluginName.contains("jup-8") ||
+             pluginName.contains("mini v") || pluginName.contains("cs-80"))
+    {
+        for (auto* param : allParams)
+        {
+            juce::String name = param->getName(30).toLowerCase();
+            if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
+                selectedParams.add(param);
+            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+        }
     }
 
-    // If no macros found, try common useful parameter names
+    // Generic: try macros, then common synth params
     if (selectedParams.isEmpty())
     {
         for (auto* param : allParams)
         {
             juce::String name = param->getName(30).toLowerCase();
-            if (name.contains("cutoff") || name.contains("filter") ||
-                name.contains("resonance") || name.contains("attack") ||
-                name.contains("release") || name.contains("volume") ||
-                name.contains("drive") || name.contains("mix"))
+            if (name.contains("macro") || name.contains("mcr") || name.contains("assign"))
                 selectedParams.add(param);
-
             if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
         }
     }
 
-    // If still nothing useful, just use the first N parameters
+    if (selectedParams.isEmpty())
+    {
+        juce::StringArray commonNames = { "cutoff", "filter", "resonance",
+                                           "attack", "release", "drive", "mix", "volume" };
+        for (auto& cn : commonNames)
+        {
+            for (auto* param : allParams)
+            {
+                if (param->getName(30).toLowerCase().contains(cn))
+                { selectedParams.add(param); break; }
+            }
+            if (selectedParams.size() >= NUM_PARAM_SLIDERS) break;
+        }
+    }
+
+    // Fallback: first N parameters
     if (selectedParams.isEmpty())
     {
         for (int i = 0; i < juce::jmin(NUM_PARAM_SLIDERS, allParams.size()); ++i)
@@ -1033,7 +1146,7 @@ void MainComponent::restoreSnapshot(const ProjectSnapshot& snap)
     }
 
     pluginHost.getEngine().setBpm(snap.bpm);
-    bpmSlider.setValue(snap.bpm, juce::dontSendNotification);
+    bpmLabel.setText(juce::String(static_cast<int>(snap.bpm)) + " BPM", juce::dontSendNotification);
 
     // Restore clips
     for (auto& cd : snap.clips)
@@ -1150,7 +1263,7 @@ void MainComponent::loadProject()
 
         double bpm = xml->getDoubleAttribute("bpm", 120.0);
         pluginHost.getEngine().setBpm(bpm);
-        bpmSlider.setValue(bpm, juce::dontSendNotification);
+        bpmLabel.setText(juce::String(static_cast<int>(bpm)) + " BPM", juce::dontSendNotification);
 
         for (auto* trackXml : xml->getChildWithTagNameIterator("Track"))
         {
@@ -1219,9 +1332,39 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 
 void MainComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1a1a1a));
-    g.setColour(juce::Colour(0xff333333));
+    auto& c = themeManager.getColors();
+
+    // Main body
+    g.fillAll(juce::Colour(c.body));
+
+    // Top bar background
+    g.setColour(juce::Colour(c.bodyLight));
+    g.fillRect(0, 0, getWidth(), 50);
+
+    // Toolbar background
+    g.setColour(juce::Colour(c.bodyDark));
+    g.fillRect(0, 50, getWidth(), 40);
+
+    // Panel dividers
+    g.setColour(juce::Colour(c.border));
     g.drawHorizontalLine(50, 0, static_cast<float>(getWidth()));
+    g.drawHorizontalLine(90, 0, static_cast<float>(getWidth()));
+
+    // Bottom bar
+    auto bottomY = getHeight() - 45;
+    g.setColour(juce::Colour(c.bodyLight));
+    g.fillRect(0, bottomY, getWidth(), 45);
+    g.setColour(juce::Colour(c.border));
+    g.drawHorizontalLine(bottomY, 0, static_cast<float>(getWidth()));
+
+    // Accent stripe at top
+    g.setColour(juce::Colour(c.accentStripe));
+    g.fillRect(0, 0, getWidth(), 2);
+
+    // Right panel border
+    int rightPanelX = getWidth() - 200;
+    g.setColour(juce::Colour(c.border));
+    g.drawVerticalLine(rightPanelX, 50, static_cast<float>(bottomY));
 }
 
 void MainComponent::resized()
@@ -1250,10 +1393,24 @@ void MainComponent::resized()
     metronomeButton.setBounds(topBar.removeFromLeft(45));
     topBar.removeFromLeft(4);
     countInButton.setBounds(topBar.removeFromLeft(75));
+    topBar.removeFromLeft(4);
+    loopButton.setBounds(topBar.removeFromLeft(55));
+    topBar.removeFromLeft(4);
+    panicButton.setBounds(topBar.removeFromLeft(55));
     topBar.removeFromLeft(8);
 
     beatLabel.setBounds(topBar.removeFromRight(90));
-    bpmSlider.setBounds(topBar);
+    topBar.removeFromRight(4);
+    bpmUpButton.setBounds(topBar.removeFromRight(38));
+    topBar.removeFromRight(2);
+    bpmLabel.setBounds(topBar.removeFromRight(70));
+    topBar.removeFromRight(2);
+    bpmDownButton.setBounds(topBar.removeFromRight(38));
+    topBar.removeFromRight(4);
+
+    // Spectrum analyzer fills remaining top bar space
+    if (topBar.getWidth() > 40)
+        spectrumDisplay.setBounds(topBar);
 
     // ── Bottom Bar ──
     auto bottomBar = area.removeFromBottom(bottomBarH).reduced(8, 6);
@@ -1283,72 +1440,78 @@ void MainComponent::resized()
     quantizeButton.setBounds(toolbar.removeFromLeft(80));
     toolbar.removeFromLeft(8);
     gridSelector.setBounds(toolbar.removeFromLeft(70));
+    toolbar.removeFromLeft(8);
+    saveButton.setBounds(toolbar.removeFromLeft(55));
+    toolbar.removeFromLeft(4);
+    loadButton.setBounds(toolbar.removeFromLeft(55));
+    toolbar.removeFromLeft(4);
+    undoButton.setBounds(toolbar.removeFromLeft(55));
+    toolbar.removeFromLeft(4);
+    redoButton.setBounds(toolbar.removeFromLeft(55));
+    toolbar.removeFromLeft(8);
+    themeSelector.setBounds(toolbar.removeFromLeft(90));
 
     // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
 
+    // Lissajous stereo field at top
+    lissajousDisplay.setBounds(rightPanel.removeFromTop(100));
+    rightPanel.removeFromTop(4);
+
     pluginSelector.setBounds(rightPanel.removeFromTop(30));
     rightPanel.removeFromTop(4);
-    openEditorButton.setBounds(rightPanel.removeFromTop(32));
+    openEditorButton.setBounds(rightPanel.removeFromTop(28));
     rightPanel.removeFromTop(4);
-    testNoteButton.setBounds(rightPanel.removeFromTop(32));
-    rightPanel.removeFromTop(8);
-    auto midiRow = rightPanel.removeFromTop(30);
-    midiRefreshButton.setBounds(midiRow.removeFromRight(60));
+    auto midiRow = rightPanel.removeFromTop(26);
+    midiRefreshButton.setBounds(midiRow.removeFromRight(55));
     midiRow.removeFromRight(4);
     midiInputSelector.setBounds(midiRow);
     rightPanel.removeFromTop(4);
-    audioSettingsButton.setBounds(rightPanel.removeFromTop(32));
-    rightPanel.removeFromTop(4);
-    midi2Button.setBounds(rightPanel.removeFromTop(32));
-    rightPanel.removeFromTop(8);
 
-    // Volume fader + Pan knob side by side
-    auto mixArea = rightPanel.removeFromTop(juce::jmin(180, rightPanel.getHeight() / 2));
-    auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2);
-    auto panArea = mixArea;
-
-    volumeLabel.setBounds(volArea.removeFromTop(18));
-    volumeSlider.setBounds(volArea);
-
-    panLabel.setBounds(panArea.removeFromTop(18));
-    panSlider.setBounds(panArea.reduced(10, 0));
-
-    rightPanel.removeFromTop(8);
-
-    // Track info
-    trackInfoLabel.setBounds(rightPanel.removeFromTop(70));
-    rightPanel.removeFromTop(8);
-
-    // Save/Load
-    auto saveLoadRow = rightPanel.removeFromTop(32);
-    saveButton.setBounds(saveLoadRow.removeFromLeft(saveLoadRow.getWidth() / 2 - 2));
-    saveLoadRow.removeFromLeft(4);
-    loadButton.setBounds(saveLoadRow);
+    // Preset browser row
+    auto presetRow = rightPanel.removeFromTop(28);
+    presetPrevButton.setBounds(presetRow.removeFromLeft(28));
+    presetRow.removeFromLeft(2);
+    presetNextButton.setBounds(presetRow.removeFromRight(28));
+    presetRow.removeFromRight(2);
+    presetNameLabel.setBounds(presetRow);
     rightPanel.removeFromTop(4);
 
-    // Undo/Redo
-    auto undoRow = rightPanel.removeFromTop(32);
-    undoButton.setBounds(undoRow.removeFromLeft(undoRow.getWidth() / 2 - 2));
-    undoRow.removeFromLeft(4);
-    redoButton.setBounds(undoRow);
-    rightPanel.removeFromTop(8);
-
-    // Plugin parameter knobs in remaining right panel space
+    // Plugin parameter knobs — 3x2 grid, compact
     if (paramSliders.size() > 0)
     {
-        int knobSize = juce::jmin(70, (rightPanel.getWidth() - 8) / 3);
+        int knobSize = juce::jmin(54, (rightPanel.getWidth() - 8) / 3);
+        int knobAreaH = 2 * (knobSize + 14) + 4;
+        auto knobArea = rightPanel.removeFromTop(knobAreaH);
+        rightPanel.removeFromTop(4);
+
         for (int i = 0; i < NUM_PARAM_SLIDERS; ++i)
         {
             int col = i % 3;
             int row = i / 3;
-            int kx = rightPanel.getX() + col * (knobSize + 4);
-            int ky = rightPanel.getY() + row * (knobSize + 18);
+            int kx = knobArea.getX() + col * (knobSize + 4);
+            int ky = knobArea.getY() + row * (knobSize + 14 + 2);
 
-            paramLabels[i]->setBounds(kx, ky, knobSize, 14);
-            paramSliders[i]->setBounds(kx, ky + 14, knobSize, knobSize);
+            paramLabels[i]->setBounds(kx, ky, knobSize, 12);
+            paramSliders[i]->setBounds(kx, ky + 12, knobSize, knobSize);
         }
     }
+
+    // Volume/Pan — compact side by side
+    auto mixArea = rightPanel.removeFromTop(juce::jmin(100, rightPanel.getHeight() / 3));
+    auto volArea = mixArea.removeFromLeft(mixArea.getWidth() / 2);
+    auto panArea = mixArea;
+
+    volumeLabel.setBounds(volArea.removeFromTop(14));
+    volumeSlider.setBounds(volArea);
+
+    panLabel.setBounds(panArea.removeFromTop(14));
+    panSlider.setBounds(panArea.reduced(8, 0));
+    rightPanel.removeFromTop(4);
+
+    audioSettingsButton.setBounds(rightPanel.removeFromTop(28));
+    rightPanel.removeFromTop(4);
+    midi2Button.setBounds(rightPanel.removeFromTop(28));
 
     // ── Timeline fills the rest ──
     area.reduce(2, 2);
@@ -1457,4 +1620,206 @@ bool MainComponent::keyStateChanged(bool /*isKeyDown*/)
         else if (!isDown && wasDown) { keysCurrentlyDown.erase(keyCode); sendNoteOff(midiNote); }
     }
     return true;
+}
+
+void MainComponent::applyThemeToControls()
+{
+    auto& c = themeManager.getColors();
+    auto fontName = themeManager.getLookAndFeel()->getUIFontName();
+
+    // Labels
+    trackNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.amber));
+    trackNameLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
+    beatLabel.setFont(juce::Font(fontName, 16.0f, juce::Font::bold));
+    beatLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
+    beatLabel.setColour(juce::Label::backgroundColourId, juce::Colour(c.lcdBg));
+    statusLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+    trackInfoLabel.setColour(juce::Label::textColourId, juce::Colour(c.textSecondary));
+
+    // BPM controls
+    bpmLabel.setFont(juce::Font(fontName, 14.0f, juce::Font::bold));
+    bpmLabel.setColour(juce::Label::textColourId, juce::Colour(c.lcdText));
+    bpmLabel.setColour(juce::Label::backgroundColourId, juce::Colour(c.lcdBg));
+    bpmDownButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    bpmUpButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+
+    // Transport
+    recordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.redDark));
+    recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.red));
+    playButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.greenDark));
+    stopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnStop));
+    metronomeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnMetronome));
+    metronomeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnMetronomeOn));
+    countInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnCountIn));
+    countInButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnCountInOn));
+    loopButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnLoop));
+    loopButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnLoopOn));
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffdd6600));
+
+    // Edit toolbar
+    newClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNewClip));
+    deleteClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnDeleteClip));
+    duplicateClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnDuplicate));
+    splitClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnSplit));
+    quantizeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnQuantize));
+    editClipButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnEditNotes));
+
+    // Navigation
+    zoomInButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    zoomOutButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    scrollLeftButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    scrollRightButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+
+    // Right panel
+    midiRefreshButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    midi2Button.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnMidi2));
+    midi2Button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(c.btnMidi2On));
+    saveButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnSave));
+    loadButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnLoad));
+    undoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnUndoRedo));
+    redoButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnUndoRedo));
+
+    // Preset browser
+    presetPrevButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    presetNextButton.setColour(juce::TextButton::buttonColourId, juce::Colour(c.btnNav));
+    presetNameLabel.setColour(juce::Label::textColourId, juce::Colour(c.textPrimary));
+    presetNameLabel.setFont(juce::Font(fontName, 11.0f, juce::Font::plain));
+
+    repaint();
+}
+
+void MainComponent::loadPresetList()
+{
+    presetNames.clear();
+    currentPresetIndex = 0;
+    presetParamIndex = -1;
+
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.plugin == nullptr)
+    {
+        presetNameLabel.setText("No Plugin", juce::dontSendNotification);
+        return;
+    }
+
+    auto& params = track.plugin->getParameters();
+
+    // Strategy 1: look for a discrete "Preset" / "Program" parameter
+    // Arturia and many VST3 plugins expose presets this way
+    for (int i = 0; i < params.size(); ++i)
+    {
+        juce::String pname = params[i]->getName(50).toLowerCase();
+        if (pname.contains("preset") || pname == "program" || pname == "patch" ||
+            pname.contains("browser") || pname.contains("prog"))
+        {
+            int numSteps = params[i]->getNumSteps();
+            if (numSteps > 1 && numSteps < 10000)
+            {
+                presetParamIndex = i;
+                for (int s = 0; s < numSteps; ++s)
+                {
+                    float normVal = static_cast<float>(s) / static_cast<float>(numSteps - 1);
+                    auto name = params[i]->getText(normVal, 80);
+                    if (name.isEmpty()) name = "Preset " + juce::String(s + 1);
+                    presetNames.add(name);
+                }
+                float curVal = params[i]->getValue();
+                currentPresetIndex = juce::roundToInt(curVal * (numSteps - 1));
+                break;
+            }
+        }
+    }
+
+    // Strategy 2: check if getNumPrograms() returns real presets
+    if (presetNames.isEmpty())
+    {
+        int numPrograms = track.plugin->getNumPrograms();
+        if (numPrograms > 1)
+        {
+            for (int i = 0; i < numPrograms; ++i)
+            {
+                auto name = track.plugin->getProgramName(i);
+                if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
+                presetNames.add(name);
+            }
+            currentPresetIndex = track.plugin->getCurrentProgram();
+        }
+    }
+
+    // Strategy 3: if nothing found, log all param names to help debug
+    if (presetNames.isEmpty())
+    {
+        DBG("=== No presets found. Plugin params for: " + track.plugin->getName() + " ===");
+        for (int i = 0; i < juce::jmin(params.size(), 30); ++i)
+            DBG("  [" + juce::String(i) + "] " + params[i]->getName(60) +
+                " (steps=" + juce::String(params[i]->getNumSteps()) + ")");
+
+        // Last resort: use program API even if only 1 program
+        int numPrograms = track.plugin->getNumPrograms();
+        if (numPrograms >= 1)
+        {
+            for (int i = 0; i < numPrograms; ++i)
+            {
+                auto name = track.plugin->getProgramName(i);
+                if (name.isEmpty()) name = "Preset " + juce::String(i + 1);
+                presetNames.add(name);
+            }
+            currentPresetIndex = track.plugin->getCurrentProgram();
+        }
+    }
+
+    if (presetNames.isEmpty())
+        presetNameLabel.setText("No Presets", juce::dontSendNotification);
+    else
+    {
+        currentPresetIndex = juce::jlimit(0, presetNames.size() - 1, currentPresetIndex);
+        presetNameLabel.setText(presetNames[currentPresetIndex], juce::dontSendNotification);
+    }
+}
+
+void MainComponent::changePreset(int delta)
+{
+    auto& track = pluginHost.getTrack(selectedTrackIndex);
+    if (track.plugin == nullptr || presetNames.isEmpty()) return;
+
+    currentPresetIndex += delta;
+    if (currentPresetIndex < 0) currentPresetIndex = presetNames.size() - 1;
+    if (currentPresetIndex >= presetNames.size()) currentPresetIndex = 0;
+
+    if (presetParamIndex >= 0)
+    {
+        // Change via the preset parameter
+        auto& params = track.plugin->getParameters();
+        if (presetParamIndex < params.size())
+        {
+            int numSteps = params[presetParamIndex]->getNumSteps();
+            if (numSteps > 1)
+            {
+                float normVal = static_cast<float>(currentPresetIndex) / static_cast<float>(numSteps - 1);
+                params[presetParamIndex]->setValue(normVal);
+
+                // Update the label from the parameter's text (may differ from our stored name)
+                auto newName = params[presetParamIndex]->getText(normVal, 80);
+                if (newName.isNotEmpty())
+                    presetNameLabel.setText(newName, juce::dontSendNotification);
+                else
+                    presetNameLabel.setText(presetNames[currentPresetIndex], juce::dontSendNotification);
+            }
+        }
+    }
+    else
+    {
+        // Change via program API + send MIDI program change
+        track.plugin->setCurrentProgram(currentPresetIndex);
+
+        // Also send MIDI program change in case the plugin responds to that
+        juce::MidiBuffer pc;
+        pc.addEvent(juce::MidiMessage::programChange(1, currentPresetIndex % 128), 0);
+        juce::AudioBuffer<float> dummy(2, 64);
+        dummy.clear();
+        track.plugin->processBlock(dummy, pc);
+
+        presetNameLabel.setText(presetNames[currentPresetIndex], juce::dontSendNotification);
+    }
+
+    updateParamSliders();
 }

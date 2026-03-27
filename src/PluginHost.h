@@ -7,6 +7,9 @@
 #include <atomic>
 #include <array>
 
+class SpectrumComponent;
+class LissajousComponent;
+
 struct Track {
     int index = 0;
     juce::String name;
@@ -52,6 +55,10 @@ public:
 
     std::atomic<int> soloCount { 0 };
 
+    // Spectrum analyzer — set from UI, read from audio thread
+    SpectrumComponent* spectrumDisplay = nullptr;
+    LissajousComponent* lissajousDisplay = nullptr;
+
 private:
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPluginList;
@@ -67,6 +74,10 @@ private:
 
     double storedSampleRate = 44100.0;
     int storedBlockSize = 512;
+
+    // MIDI clock state
+    bool midiClockWasPlaying = false;
+    double midiClockPulseAccum = 0.0;  // fractional pulse accumulator
 
     void setupGraph();
     void connectTrackAudio(int trackIndex);

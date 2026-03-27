@@ -30,6 +30,23 @@ target_sources(Sequencer PRIVATE
     src/PianoRollComponent.cpp
     src/Midi2Handler.h
     src/Midi2Handler.cpp
+    src/DawTheme.h
+    src/DawLookAndFeel.h
+    src/WalkmanLookAndFeel.h
+    src/GlassLookAndFeel.h
+    src/NoirLookAndFeel.h
+    src/TerminalLookAndFeel.h
+    src/JournalLookAndFeel.h
+    src/LinenLookAndFeel.h
+    src/MidnightLookAndFeel.h
+    src/IceLookAndFeel.h
+    src/IndigoLookAndFeel.h
+    src/NeonLookAndFeel.h
+    src/SteelLookAndFeel.h
+    src/FrostLookAndFeel.h
+    src/SpectrumComponent.h
+    src/LissajousComponent.h
+    src/ThemeManager.h
     src/TimelineComponent.h
     src/TimelineComponent.cpp
 )
@@ -52,6 +69,7 @@ target_link_libraries(Sequencer PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_devices
     juce::juce_audio_processors
+    juce::juce_dsp
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
 )

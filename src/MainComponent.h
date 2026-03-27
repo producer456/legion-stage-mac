@@ -6,6 +6,9 @@
 #include "PianoRollComponent.h"
 #include "TimelineComponent.h"
 #include "Midi2Handler.h"
+#include "ThemeManager.h"
+#include "SpectrumComponent.h"
+#include "LissajousComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
 {
@@ -40,6 +43,10 @@ public:
     bool keyStateChanged(bool isKeyDown) override;
 
 private:
+    ThemeManager themeManager;
+    juce::ComboBox themeSelector;
+    SpectrumComponent spectrumDisplay;
+    LissajousComponent lissajousDisplay;
     juce::AudioDeviceManager deviceManager;
     juce::AudioProcessorPlayer audioPlayer;
     PluginHost pluginHost;
@@ -58,7 +65,9 @@ private:
     juce::TextButton playButton { "PLAY" };
     juce::TextButton stopButton { "STOP" };
     juce::TextButton metronomeButton { "MET" };
-    juce::Slider bpmSlider;
+    juce::TextButton bpmDownButton { "-" };
+    juce::Label bpmLabel;
+    juce::TextButton bpmUpButton { "+" };
     juce::Label beatLabel;
 
     // ── Edit Toolbar ──
@@ -70,6 +79,8 @@ private:
     juce::TextButton quantizeButton { "Quantize" };
     juce::ComboBox gridSelector;
     juce::TextButton countInButton { "Count-In" };
+    juce::TextButton loopButton { "LOOP" };
+    juce::TextButton panicButton { "PANIC" };
 
     // ── Navigation ──
     juce::TextButton zoomInButton { "Zoom +" };
@@ -87,6 +98,16 @@ private:
 
     // MidiInputCallback — intercept SysEx for CI before it goes to collector
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg) override;
+
+    // ── Preset Browser ──
+    juce::TextButton presetPrevButton { "<" };
+    juce::Label presetNameLabel;
+    juce::TextButton presetNextButton { ">" };
+    void loadPresetList();
+    void changePreset(int delta);
+    juce::StringArray presetNames;
+    int currentPresetIndex = 0;
+    int presetParamIndex = -1;  // index of "Preset" parameter for VST3 plugins
 
     // ── Right Panel — Save/Load/Undo ──
     juce::TextButton saveButton { "Save" };
@@ -172,6 +193,7 @@ private:
     void disableCurrentMidiDevice();
     void showAudioSettings();
     void updateStatusLabel();
+    void applyThemeToControls();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

@@ -34,6 +34,15 @@ public:
     void toggleCountIn();
     bool isCountInEnabled() const { return countInEnabled.load(); }
 
+    // Loop
+    void toggleLoop();
+    bool isLoopEnabled() const { return loopEnabled.load(); }
+    void setLoopRegion(double startBeat, double endBeat);
+    void clearLoopRegion();
+    double getLoopStart() const { return loopStart.load(); }
+    double getLoopEnd() const { return loopEnd.load(); }
+    bool hasLoopRegion() const { return loopEnd.load() > loopStart.load(); }
+
     // Position control
     void resetPosition();
     void setPosition(double beats) { positionInBeats.store(beats); }
@@ -55,4 +64,9 @@ private:
     std::atomic<bool> countingIn { false };
     double countInBeatsRemaining = 0.0;
     double savedPosition = 0.0;  // where to start after count-in
+
+    // Loop
+    std::atomic<bool> loopEnabled { false };
+    std::atomic<double> loopStart { 0.0 };
+    std::atomic<double> loopEnd { 0.0 };
 };

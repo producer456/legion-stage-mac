@@ -1,4 +1,5 @@
 #include "TimelineComponent.h"
+#include "DawLookAndFeel.h"
 
 TimelineComponent::TimelineComponent(PluginHost& host)
     : pluginHost(host)
@@ -21,7 +22,7 @@ double TimelineComponent::xToBeat(float x) const
 
 int TimelineComponent::yToTrack(float y) const
 {
-    return static_cast<int>((y - headerHeight) / trackHeight);
+    return static_cast<int>((y - headerHeight + scrollY) / trackHeight);
 }
 
 // ── Hit testing ──────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ juce::Rectangle<float> TimelineComponent::getClipRect(int trackIndex, int slotIn
 
     float x1 = beatToX(slot.clip->timelinePosition);
     float x2 = beatToX(slot.clip->timelinePosition + slot.clip->lengthInBeats);
-    float y = static_cast<float>(headerHeight + trackIndex * trackHeight + 2);
+    float y = static_cast<float>(headerHeight + trackIndex * trackHeight - scrollY + 2);
     float h = static_cast<float>(trackHeight - 4);
 
     return { x1, y, x2 - x1, h };
@@ -127,11 +128,15 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
 
-    // Click on header = jump playhead to that position
+    // Click on header — start loop drag or jump playhead
     if (e.y < headerHeight && e.x >= trackLabelWidth)
     {
         double beat = snapToGrid(xToBeat(mx));
         if (beat < 0.0) beat = 0.0;
+
+        // Begin loop region drag
+        draggingLoop = true;
+        loopDragStartBeat = beat;
         pluginHost.getEngine().setPosition(beat);
         repaint();
         return;
@@ -208,6 +213,22 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 {
+    // Loop region drag on header
+    if (draggingLoop)
+    {
+        float mx = static_cast<float>(e.x);
+        double beat = snapToGrid(xToBeat(mx));
+        if (beat < 0.0) beat = 0.0;
+
+        double ls = juce::jmin(loopDragStartBeat, beat);
+        double le = juce::jmax(loopDragStartBeat, beat);
+        if (le - ls > 0.1)  // minimum size of ~0.1 beats
+            pluginHost.getEngine().setLoopRegion(ls, le);
+
+        repaint();
+        return;
+    }
+
     if (dragMode == NoDrag || !dragClip.isValid()) return;
 
     float mx = static_cast<float>(e.x);
@@ -301,6 +322,8 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
+    draggingLoop = false;
+
     // Handle ARM button release — distinguish tap vs long press
     if (longPressTrack >= 0)
     {
@@ -361,6 +384,14 @@ void TimelineComponent::mouseMove(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    // Double-click header = clear loop region
+    if (e.y < headerHeight && e.x >= trackLabelWidth)
+    {
+        pluginHost.getEngine().clearLoopRegion();
+        repaint();
+        return;
+    }
+
     if (e.x < trackLabelWidth) return;
 
     float mx = static_cast<float>(e.x);
@@ -394,13 +425,23 @@ void TimelineComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::Mo
 {
     if (e.mods.isCtrlDown())
     {
+        // Ctrl+wheel = zoom
         double zoomFactor = 1.0 + w.deltaY * 0.3;
         pixelsPerBeat = juce::jlimit(10.0, 200.0, pixelsPerBeat * zoomFactor);
     }
+    else if (e.mods.isShiftDown() || std::abs(w.deltaX) > std::abs(w.deltaY))
+    {
+        // Shift+wheel or horizontal scroll = timeline scroll
+        double delta = (w.deltaX != 0.0f) ? w.deltaX : w.deltaY;
+        scrollX -= delta * 4.0;
+        if (scrollX < 0.0) scrollX = 0.0;
+    }
     else
     {
-        scrollX -= w.deltaY * 4.0;
-        if (scrollX < 0.0) scrollX = 0.0;
+        // Vertical scroll = track scroll
+        int totalContent = PluginHost::NUM_TRACKS * trackHeight;
+        int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
+        scrollY = juce::jlimit(0, maxScroll, scrollY - static_cast<int>(w.deltaY * trackHeight));
     }
     repaint();
 }
@@ -666,11 +707,27 @@ void TimelineComponent::paint(juce::Graphics& g)
     drawHeader(g);
     drawTrackLanes(g);
     drawClips(g);
+    drawLoopRegion(g);
     drawAutomation(g);
     drawPlayhead(g);
 }
 
-void TimelineComponent::resized() {}
+void TimelineComponent::resized()
+{
+    recalcTrackHeight();
+}
+
+void TimelineComponent::recalcTrackHeight()
+{
+    int available = getHeight() - headerHeight;
+    if (available > 0)
+        trackHeight = juce::jmax(48, available / visibleTracks);
+
+    // Clamp scroll
+    int totalContent = PluginHost::NUM_TRACKS * trackHeight;
+    int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
+    scrollY = juce::jlimit(0, maxScroll, scrollY);
+}
 
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
@@ -717,9 +774,16 @@ void TimelineComponent::drawHeader(juce::Graphics& g)
 
 void TimelineComponent::drawTrackLanes(juce::Graphics& g)
 {
+    // Clip to track area (below header)
+    g.saveState();
+    g.reduceClipRegion(0, headerHeight, getWidth(), getHeight() - headerHeight);
+
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
-        int y = headerHeight + t * trackHeight;
+        int y = headerHeight + t * trackHeight - scrollY;
+
+        // Skip off-screen tracks
+        if (y + trackHeight < headerHeight || y > getHeight()) continue;
 
         // Selected track highlight
         bool isSelected = (t == pluginHost.getSelectedTrack());
@@ -734,23 +798,24 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
     }
 
     drawTrackControls(g);
+    g.restoreState();
 }
 
 juce::Rectangle<int> TimelineComponent::getSelectButtonRect(int trackIndex) const
 {
-    int y = headerHeight + trackIndex * trackHeight;
+    int y = headerHeight + trackIndex * trackHeight - scrollY;
     return { 2, y + 2, trackLabelWidth - 40, trackHeight - 4 };
 }
 
 juce::Rectangle<int> TimelineComponent::getMuteButtonRect(int trackIndex) const
 {
-    int y = headerHeight + trackIndex * trackHeight;
+    int y = headerHeight + trackIndex * trackHeight - scrollY;
     return { trackLabelWidth - 36, y + 3, 34, (trackHeight - 8) / 2 };
 }
 
 juce::Rectangle<int> TimelineComponent::getSoloButtonRect(int trackIndex) const
 {
-    int y = headerHeight + trackIndex * trackHeight;
+    int y = headerHeight + trackIndex * trackHeight - scrollY;
     int halfH = (trackHeight - 8) / 2;
     return { trackLabelWidth - 36, y + 3 + halfH + 2, 34, halfH };
 }
@@ -809,6 +874,53 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         g.setColour(isSoloed ? juce::Colours::black : juce::Colours::white);
         g.setFont(13.0f);
         g.drawText("S", soloRect, juce::Justification::centred);
+
+        // VU meter + CPU meter
+        if (track.gainProcessor != nullptr)
+        {
+            int y = headerHeight + t * trackHeight - scrollY;
+            int meterY = y + trackHeight - 10;
+            int meterW = trackLabelWidth - 44;
+
+            // Get theme meter color (ice-blue by default)
+            uint32_t meterColor = 0xffc8e4ff;
+            uint32_t meterBgColor = 0xff1a1a22;
+            uint32_t cpuColor = 0xff44dd66;
+            if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+            {
+                meterBgColor = lnf->getTheme().bodyDark;
+            }
+
+            float pkL = track.gainProcessor->peakLevelL.load();
+            float pkR = track.gainProcessor->peakLevelR.load();
+            float cpu = track.gainProcessor->cpuPercent.load();
+
+            // Clamp
+            pkL = juce::jlimit(0.0f, 1.0f, pkL);
+            pkR = juce::jlimit(0.0f, 1.0f, pkR);
+            cpu = juce::jlimit(0.0f, 100.0f, cpu);
+
+            // VU background
+            g.setColour(juce::Colour(meterBgColor));
+            g.fillRect(4, meterY, meterW, 3);
+            g.fillRect(4, meterY + 4, meterW, 3);
+
+            // VU fill — L channel
+            g.setColour(pkL > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
+            g.fillRect(4, meterY, static_cast<int>(pkL * meterW), 3);
+
+            // VU fill — R channel
+            g.setColour(pkR > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
+            g.fillRect(4, meterY + 4, static_cast<int>(pkR * meterW), 3);
+
+            // CPU bar — thin line below VU, green normally, red when high
+            if (cpu > 0.1f)
+            {
+                g.setColour(cpu > 50.0f ? juce::Colour(0xffee4444) : juce::Colour(cpuColor));
+                int cpuW = static_cast<int>((cpu / 100.0f) * meterW);
+                g.fillRect(4, meterY + 8, cpuW, 1);
+            }
+        }
 
         // Divider
         g.setColour(juce::Colour(0xff444444));
@@ -979,7 +1091,7 @@ void TimelineComponent::drawAutomation(juce::Graphics& g)
     for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
     {
         auto& track = pluginHost.getTrack(t);
-        int laneY = headerHeight + t * trackHeight;
+        int laneY = headerHeight + t * trackHeight - scrollY;
         int colorIdx = 0;
 
         for (auto* lane : track.automationLanes)
@@ -1026,18 +1138,68 @@ void TimelineComponent::drawPlayhead(juce::Graphics& g)
 
     if (x < static_cast<float>(trackLabelWidth) || x > static_cast<float>(getWidth())) return;
 
-    g.setColour(juce::Colour(0xddffcc00));
+    uint32_t phColor = 0xdd44dd66;
+    uint32_t phGlow  = 0x3344dd66;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        phColor = lnf->getTheme().playhead;
+        phGlow  = lnf->getTheme().playheadGlow;
+    }
+
+    g.setColour(juce::Colour(phColor));
     g.drawVerticalLine(static_cast<int>(x), static_cast<float>(headerHeight),
                        static_cast<float>(getHeight()));
 
-    g.setColour(juce::Colour(0x33ffcc00));
+    g.setColour(juce::Colour(phGlow));
     g.fillRect(x - 1.0f, static_cast<float>(headerHeight), 3.0f,
                static_cast<float>(getHeight() - headerHeight));
 
-    g.setColour(juce::Colour(0xffee9900));
+    g.setColour(juce::Colour(phColor));
     juce::Path triangle;
     triangle.addTriangle(x - 5, static_cast<float>(headerHeight),
                          x + 5, static_cast<float>(headerHeight),
                          x, static_cast<float>(headerHeight + 8));
     g.fillPath(triangle);
+}
+
+void TimelineComponent::drawLoopRegion(juce::Graphics& g)
+{
+    auto& engine = pluginHost.getEngine();
+    if (!engine.hasLoopRegion()) return;
+
+    float x1 = beatToX(engine.getLoopStart());
+    float x2 = beatToX(engine.getLoopEnd());
+
+    if (x2 < static_cast<float>(trackLabelWidth) || x1 > static_cast<float>(getWidth())) return;
+
+    x1 = juce::jmax(x1, static_cast<float>(trackLabelWidth));
+    x2 = juce::jmin(x2, static_cast<float>(getWidth()));
+
+    // Get theme colors (fall back to blue if no LookAndFeel set)
+    uint32_t regionColor = 0x2244aaff;
+    uint32_t borderColor = 0xff4488cc;
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        regionColor = lnf->getTheme().loopRegion;
+        borderColor = lnf->getTheme().loopBorder;
+    }
+
+    // Header bar
+    g.setColour(juce::Colour(borderColor).withAlpha(0.4f));
+    g.fillRect(x1, 0.0f, x2 - x1, static_cast<float>(headerHeight));
+
+    // Overlay across tracks
+    g.setColour(juce::Colour(regionColor));
+    g.fillRect(x1, static_cast<float>(headerHeight), x2 - x1,
+               static_cast<float>(getHeight() - headerHeight));
+
+    // Left/right borders
+    g.setColour(juce::Colour(borderColor));
+    g.drawVerticalLine(static_cast<int>(x1), 0.0f, static_cast<float>(getHeight()));
+    g.drawVerticalLine(static_cast<int>(x2), 0.0f, static_cast<float>(getHeight()));
+
+    // "L" markers at top
+    g.setFont(10.0f);
+    g.drawText("L", static_cast<int>(x1) + 2, 1, 12, headerHeight - 2, juce::Justification::topLeft);
+    g.drawText("R", static_cast<int>(x2) - 14, 1, 12, headerHeight - 2, juce::Justification::topRight);
 }

@@ -45,6 +45,11 @@ public:
     std::atomic<int>* soloCount = nullptr;
     std::atomic<bool> soloed { false };
 
+    // Metering — written on audio thread, read on UI thread
+    std::atomic<float> peakLevelL { 0.0f };
+    std::atomic<float> peakLevelR { 0.0f };
+    std::atomic<float> cpuPercent { 0.0f };
+
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainProcessor)
 };

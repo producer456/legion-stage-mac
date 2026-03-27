@@ -37,11 +37,14 @@ private:
 
     // View state
     double scrollX = 0.0;
+    int scrollY = 0;           // vertical scroll offset in pixels
     double pixelsPerBeat = 40.0;
-    int trackHeight = 72;      // tall enough for finger-sized buttons
+    int trackHeight = 72;      // computed dynamically to fit 8 tracks
+    static constexpr int visibleTracks = 8;
     int headerHeight = 28;
     int trackLabelWidth = 140;  // room for track name + M/S buttons
     double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)
+    void recalcTrackHeight();
 
 public:
     void setGridResolution(double beatsPerGrid) { gridResolution = beatsPerGrid; repaint(); }
@@ -95,6 +98,11 @@ private:
     juce::Rectangle<int> getMuteButtonRect(int trackIndex) const;
     juce::Rectangle<int> getSoloButtonRect(int trackIndex) const;
     void handleTrackControlClick(int trackIndex, float x, float y);
+
+    // Loop region dragging
+    bool draggingLoop = false;
+    double loopDragStartBeat = 0.0;
+    void drawLoopRegion(juce::Graphics& g);
 
     // Long press detection for arm lock
     int longPressTrack = -1;

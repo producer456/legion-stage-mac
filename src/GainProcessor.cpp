@@ -20,10 +20,15 @@ bool GainProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 
 void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& /*midi*/)
 {
+    auto startTime = juce::Time::getHighResolutionTicks();
+
     // Check mute
     if (muted.load())
     {
         buffer.clear();
+        peakLevelL.store(0.0f);
+        peakLevelR.store(0.0f);
+        cpuPercent.store(0.0f);
         return;
     }
 
@@ -31,6 +36,9 @@ void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     if (soloCount != nullptr && soloCount->load() > 0 && !soloed.load())
     {
         buffer.clear();
+        peakLevelL.store(0.0f);
+        peakLevelR.store(0.0f);
+        cpuPercent.store(0.0f);
         return;
     }
 
@@ -46,4 +54,26 @@ void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         buffer.applyGain(0, 0, buffer.getNumSamples(), leftGain);
     if (buffer.getNumChannels() >= 2)
         buffer.applyGain(1, 0, buffer.getNumSamples(), rightGain);
+
+    // Measure peak levels (post-gain)
+    float pkL = 0.0f, pkR = 0.0f;
+    if (buffer.getNumChannels() >= 1)
+        pkL = buffer.getMagnitude(0, 0, buffer.getNumSamples());
+    if (buffer.getNumChannels() >= 2)
+        pkR = buffer.getMagnitude(1, 0, buffer.getNumSamples());
+
+    // Smooth falloff
+    float prevL = peakLevelL.load();
+    float prevR = peakLevelR.load();
+    peakLevelL.store(juce::jmax(pkL, prevL * 0.9f));
+    peakLevelR.store(juce::jmax(pkR, prevR * 0.9f));
+
+    // CPU measurement
+    auto endTime = juce::Time::getHighResolutionTicks();
+    double seconds = juce::Time::highResolutionTicksToSeconds(endTime - startTime);
+    double blockDuration = static_cast<double>(buffer.getNumSamples()) / getSampleRate();
+    float cpu = static_cast<float>(seconds / blockDuration) * 100.0f;
+    // Smooth CPU reading
+    float prevCpu = cpuPercent.load();
+    cpuPercent.store(prevCpu * 0.8f + cpu * 0.2f);
 }

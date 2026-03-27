@@ -1,4 +1,6 @@
 #include "PluginHost.h"
+#include "SpectrumComponent.h"
+#include "LissajousComponent.h"
 
 PluginHost::PluginHost()
 {
@@ -209,6 +211,47 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // Advance transport
     engine.advancePosition(buffer.getNumSamples(), storedSampleRate);
 
+    // ── MIDI Clock ──
+    // Send start/stop messages on transport state changes
+    bool isPlaying = engine.isPlaying() && !engine.isInCountIn();
+    if (isPlaying && !midiClockWasPlaying)
+    {
+        // Send Song Position Pointer then Start
+        double beatPos = engine.getPositionInBeats();
+        int midiBeats = static_cast<int>(beatPos * 6.0); // MIDI beat = 1/16 note = 6 clocks
+        midiMessages.addEvent(juce::MidiMessage::songPositionPointer(midiBeats), 0);
+        midiMessages.addEvent(juce::MidiMessage(0xFA), 0); // Start
+        midiClockPulseAccum = 0.0;
+    }
+    else if (!isPlaying && midiClockWasPlaying)
+    {
+        midiMessages.addEvent(juce::MidiMessage(0xFC), 0); // Stop
+        midiClockPulseAccum = 0.0;
+    }
+    midiClockWasPlaying = isPlaying;
+
+    // Send clock pulses (0xF8) at 24 PPQN while playing
+    if (isPlaying)
+    {
+        double bpm = engine.getBpm();
+        double pulsesPerSecond = (bpm / 60.0) * 24.0;
+        double pulsesThisBlock = pulsesPerSecond * (static_cast<double>(buffer.getNumSamples()) / storedSampleRate);
+        midiClockPulseAccum += pulsesThisBlock;
+
+        int numPulses = static_cast<int>(midiClockPulseAccum);
+        if (numPulses > 0)
+        {
+            midiClockPulseAccum -= numPulses;
+            // Spread pulses evenly across the block
+            double samplesPerPulse = static_cast<double>(buffer.getNumSamples()) / numPulses;
+            for (int p = 0; p < numPulses; ++p)
+            {
+                int sampleOffset = static_cast<int>(p * samplesPerPulse);
+                midiMessages.addEvent(juce::MidiMessage(0xF8), sampleOffset);
+            }
+        }
+    }
+
     AudioProcessorGraph::processBlock(buffer, midiMessages);
 
     // Apply automation during playback
@@ -238,4 +281,28 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     // Render metronome click on top of the output
     engine.renderMetronome(buffer, buffer.getNumSamples(), storedSampleRate);
+
+    // Feed spectrum analyzer (mono mix of L+R)
+    if (spectrumDisplay != nullptr && buffer.getNumChannels() >= 2)
+    {
+        int n = buffer.getNumSamples();
+        const float* L = buffer.getReadPointer(0);
+        const float* R = buffer.getReadPointer(1);
+
+        // Stack-allocate a small mono buffer
+        float mono[2048];
+        int count = juce::jmin(n, 2048);
+        for (int i = 0; i < count; ++i)
+            mono[i] = (L[i] + R[i]) * 0.5f;
+
+        spectrumDisplay->pushSamples(mono, count);
+    }
+
+    // Feed Lissajous display (stereo)
+    if (lissajousDisplay != nullptr && buffer.getNumChannels() >= 2)
+    {
+        lissajousDisplay->pushSamples(buffer.getReadPointer(0),
+                                       buffer.getReadPointer(1),
+                                       buffer.getNumSamples());
+    }
 }

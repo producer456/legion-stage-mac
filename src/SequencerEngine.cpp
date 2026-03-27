@@ -38,6 +38,26 @@ void SequencerEngine::toggleCountIn()
     countInEnabled.store(!countInEnabled.load());
 }
 
+void SequencerEngine::toggleLoop()
+{
+    loopEnabled.store(!loopEnabled.load());
+}
+
+void SequencerEngine::setLoopRegion(double startBeat, double endBeat)
+{
+    if (startBeat < endBeat)
+    {
+        loopStart.store(startBeat);
+        loopEnd.store(endBeat);
+    }
+}
+
+void SequencerEngine::clearLoopRegion()
+{
+    loopStart.store(0.0);
+    loopEnd.store(0.0);
+}
+
 double SequencerEngine::advancePosition(int numSamples, double sampleRate)
 {
     if (!playing.load())
@@ -93,6 +113,15 @@ double SequencerEngine::advancePosition(int numSamples, double sampleRate)
             clickSamplesRemaining = static_cast<int>(sampleRate * 0.02);
             clickPhase = 0.0;
         }
+    }
+
+    // Loop wrap-around
+    if (loopEnabled.load())
+    {
+        double ls = loopStart.load();
+        double le = loopEnd.load();
+        if (le > ls && newPos >= le)
+            newPos = ls + std::fmod(newPos - ls, le - ls);
     }
 
     positionInBeats.store(newPos);
