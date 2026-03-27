@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 #include <atomic>
 
+class LissajousComponent;
+
 class GainProcessor : public juce::AudioProcessor
 {
 public:
@@ -49,6 +51,9 @@ public:
     std::atomic<float> peakLevelL { 0.0f };
     std::atomic<float> peakLevelR { 0.0f };
     std::atomic<float> cpuPercent { 0.0f };
+
+    // Per-track Lissajous feed
+    LissajousComponent* lissajousDisplay = nullptr;
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GainProcessor)

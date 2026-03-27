@@ -58,7 +58,7 @@ public:
 
         float cx = plotArea.getCentreX();
         float cy = plotArea.getCentreY();
-        float scale = juce::jmin(plotArea.getWidth(), plotArea.getHeight()) * 4.0f;
+        float scale = juce::jmin(plotArea.getWidth(), plotArea.getHeight()) * 3.0f;
 
         // Value markers on sides
         auto labelColor = juce::Colour(dotColor).withAlpha(0.35f);

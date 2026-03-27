@@ -77,8 +77,8 @@ public:
         theme.clipPlaying   = 0xff1a3828;
 
         // ── Playhead ──
-        theme.playhead     = 0xdd44dd66;
-        theme.playheadGlow = 0x3344dd66;
+        theme.playhead     = 0xddc8e4ff;
+        theme.playheadGlow = 0x33c8e4ff;
 
         theme.accentStripe = 0xffc8e4ff;
 

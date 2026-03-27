@@ -25,6 +25,7 @@ public:
     void resized() override;
     void timerCallback() override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
+    void mouseMagnify(const juce::MouseEvent& e, float scaleFactor) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
@@ -40,7 +41,7 @@ private:
     int scrollY = 0;           // vertical scroll offset in pixels
     double pixelsPerBeat = 40.0;
     int trackHeight = 72;      // computed dynamically to fit 8 tracks
-    static constexpr int visibleTracks = 8;
+    static constexpr int visibleTracks = 7;
     int headerHeight = 28;
     int trackLabelWidth = 140;  // room for track name + M/S buttons
     double gridResolution = 0.25; // beats per grid line (0.25 = 1/16, 0.5 = 1/8, 1.0 = 1/4)
@@ -98,6 +99,12 @@ private:
     juce::Rectangle<int> getMuteButtonRect(int trackIndex) const;
     juce::Rectangle<int> getSoloButtonRect(int trackIndex) const;
     void handleTrackControlClick(int trackIndex, float x, float y);
+
+    // Touch scroll — track initial position for inertia
+    bool touchScrolling = false;
+    juce::Point<float> touchScrollStart;
+    double touchScrollStartX = 0.0;
+    int touchScrollStartY = 0;
 
     // Loop region dragging
     bool draggingLoop = false;

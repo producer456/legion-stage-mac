@@ -62,6 +62,44 @@ void PluginHost::scanForPlugins()
     if (format == nullptr) return;
 
     auto searchPaths = format->getDefaultLocationsToSearch();
+
+    // Add all common Windows VST3 locations
+    juce::StringArray extraPaths = {
+        "C:\\Program Files\\Common Files\\VST3",
+        "C:\\Program Files (x86)\\Common Files\\VST3",
+        "C:\\Program Files\\Steinberg\\Cubase 15\\VST3",
+        "C:\\Program Files\\Steinberg\\Cubase 14\\VST3",
+        "C:\\Program Files\\Steinberg\\Cubase 13\\VST3",
+        "C:\\Program Files\\PreSonus\\Studio One 7\\VST3",
+        "C:\\Program Files\\PreSonus\\Studio One 5\\VST3",
+        "C:\\Program Files\\VSTPlugins",
+        "C:\\Program Files (x86)\\VSTPlugins"
+    };
+
+    // Also check user's local app data
+    auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    auto localAppData = juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory);
+    extraPaths.add(appData.getChildFile("VST3").getFullPathName());
+    extraPaths.add(localAppData.getChildFile("VST3").getFullPathName());
+
+    for (auto& path : extraPaths)
+    {
+        juce::File dir(path);
+        if (dir.isDirectory())
+            searchPaths.add(dir);
+    }
+
+    // Recursively find any .vst3 in Program Files we might have missed
+    juce::File progFiles("C:\\Program Files");
+    if (progFiles.isDirectory())
+    {
+        for (const auto& entry : juce::RangedDirectoryIterator(progFiles, true, "*.vst3", juce::File::findDirectories))
+        {
+            auto parent = entry.getFile().getParentDirectory();
+            searchPaths.addIfNotAlreadyThere(parent);
+        }
+    }
+
     auto foundFiles = format->searchPathsForPlugins(searchPaths, true, false);
 
     for (const auto& file : foundFiles)
@@ -117,6 +155,10 @@ void PluginHost::unloadPlugin(int trackIndex)
     if (track.clipPlayer != nullptr)
         track.clipPlayer->sendAllNotesOff.store(true);
 
+    // Unload all FX first
+    for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
+        unloadFx(trackIndex, fx);
+
     auto connections = getConnections();
     for (auto& conn : connections)
     {
@@ -132,6 +174,44 @@ void PluginHost::unloadPlugin(int trackIndex)
     track.plugin = nullptr;
 }
 
+void PluginHost::rewireTrack(int trackIndex)
+{
+    auto& track = tracks[static_cast<size_t>(trackIndex)];
+
+    // Remove all audio connections for this track's nodes
+    auto connections = getConnections();
+    for (auto& conn : connections)
+    {
+        // Check if this connection involves any of this track's nodes (except MIDI input/output)
+        auto srcID = conn.source.nodeID;
+        auto dstID = conn.destination.nodeID;
+
+        bool isTrackNode = (track.pluginNode != nullptr && (srcID == track.pluginNode->nodeID || dstID == track.pluginNode->nodeID))
+                        || (srcID == track.gainNode->nodeID || dstID == track.gainNode->nodeID)
+                        || (srcID == track.clipPlayerNode->nodeID || dstID == track.clipPlayerNode->nodeID);
+
+        for (int fx = 0; fx < Track::NUM_FX_SLOTS && !isTrackNode; ++fx)
+        {
+            if (track.fxSlots[fx].node != nullptr &&
+                (srcID == track.fxSlots[fx].node->nodeID || dstID == track.fxSlots[fx].node->nodeID))
+                isTrackNode = true;
+        }
+
+        if (isTrackNode)
+            removeConnection(conn);
+    }
+
+    // Reconnect: gain -> output is always there
+    for (int ch = 0; ch < 2; ++ch)
+        addConnection({ { track.gainNode->nodeID, ch }, { audioOutputNode->nodeID, ch } });
+
+    // Reconnect the instrument + FX chain if plugin is loaded
+    if (track.pluginNode != nullptr)
+        connectTrackAudio(trackIndex);
+
+    updateMidiRouting();
+}
+
 void PluginHost::connectTrackAudio(int trackIndex)
 {
     auto& track = tracks[static_cast<size_t>(trackIndex)];
@@ -141,12 +221,85 @@ void PluginHost::connectTrackAudio(int trackIndex)
     addConnection({ { track.clipPlayerNode->nodeID, AudioProcessorGraph::midiChannelIndex },
                     { track.pluginNode->nodeID, AudioProcessorGraph::midiChannelIndex } });
 
-    // Plugin audio -> Gain
-    for (int ch = 0; ch < 2; ++ch)
+    // Build the audio chain: Plugin -> [FX1] -> [FX2] -> [FX3] -> Gain
+    auto lastNodeID = track.pluginNode->nodeID;
+
+    for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
     {
-        addConnection({ { track.pluginNode->nodeID, ch },
-                        { track.gainNode->nodeID, ch } });
+        if (track.fxSlots[fx].node != nullptr && !track.fxSlots[fx].bypassed)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                addConnection({ { lastNodeID, ch }, { track.fxSlots[fx].node->nodeID, ch } });
+            lastNodeID = track.fxSlots[fx].node->nodeID;
+        }
     }
+
+    // Last node -> Gain
+    for (int ch = 0; ch < 2; ++ch)
+        addConnection({ { lastNodeID, ch }, { track.gainNode->nodeID, ch } });
+}
+
+bool PluginHost::loadFx(int trackIndex, int slotIndex, const juce::PluginDescription& desc, juce::String& errorMsg)
+{
+    if (trackIndex < 0 || trackIndex >= NUM_TRACKS) return false;
+    if (slotIndex < 0 || slotIndex >= Track::NUM_FX_SLOTS) return false;
+
+    unloadFx(trackIndex, slotIndex);
+
+    auto instance = formatManager.createPluginInstance(desc, storedSampleRate, storedBlockSize, errorMsg);
+    if (instance == nullptr) return false;
+
+    auto& track = tracks[static_cast<size_t>(trackIndex)];
+    track.fxSlots[slotIndex].processor = instance.get();
+    track.fxSlots[slotIndex].node = addNode(std::move(instance));
+    track.fxSlots[slotIndex].bypassed = false;
+
+    if (track.fxSlots[slotIndex].node == nullptr)
+    {
+        track.fxSlots[slotIndex].processor = nullptr;
+        errorMsg = "Failed to add FX to graph";
+        return false;
+    }
+
+    // Rewire the entire track chain
+    rewireTrack(trackIndex);
+    prepareToPlay(storedSampleRate, storedBlockSize);
+    return true;
+}
+
+void PluginHost::unloadFx(int trackIndex, int slotIndex)
+{
+    if (trackIndex < 0 || trackIndex >= NUM_TRACKS) return;
+    if (slotIndex < 0 || slotIndex >= Track::NUM_FX_SLOTS) return;
+
+    auto& track = tracks[static_cast<size_t>(trackIndex)];
+    auto& slot = track.fxSlots[slotIndex];
+    if (slot.node == nullptr) return;
+
+    // Remove all connections to/from this FX node
+    auto connections = getConnections();
+    for (auto& conn : connections)
+    {
+        if (conn.source.nodeID == slot.node->nodeID ||
+            conn.destination.nodeID == slot.node->nodeID)
+            removeConnection(conn);
+    }
+
+    removeNode(slot.node->nodeID);
+    slot.node = nullptr;
+    slot.processor = nullptr;
+    slot.bypassed = false;
+
+    rewireTrack(trackIndex);
+}
+
+void PluginHost::setFxBypassed(int trackIndex, int slotIndex, bool bypassed)
+{
+    if (trackIndex < 0 || trackIndex >= NUM_TRACKS) return;
+    if (slotIndex < 0 || slotIndex >= Track::NUM_FX_SLOTS) return;
+
+    tracks[static_cast<size_t>(trackIndex)].fxSlots[slotIndex].bypassed = bypassed;
+    rewireTrack(trackIndex);
 }
 
 void PluginHost::setSelectedTrack(int index)
@@ -298,11 +451,4 @@ void PluginHost::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         spectrumDisplay->pushSamples(mono, count);
     }
 
-    // Feed Lissajous display (stereo)
-    if (lissajousDisplay != nullptr && buffer.getNumChannels() >= 2)
-    {
-        lissajousDisplay->pushSamples(buffer.getReadPointer(0),
-                                       buffer.getReadPointer(1),
-                                       buffer.getNumSamples());
-    }
 }

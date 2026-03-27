@@ -10,6 +10,12 @@
 class SpectrumComponent;
 class LissajousComponent;
 
+struct FxSlot {
+    juce::AudioProcessorGraph::Node::Ptr node;
+    juce::AudioProcessor* processor = nullptr;
+    bool bypassed = false;
+};
+
 struct Track {
     int index = 0;
     juce::String name;
@@ -20,6 +26,9 @@ struct Track {
     ClipPlayerNode* clipPlayer = nullptr;
     juce::AudioProcessor* plugin = nullptr;
     juce::OwnedArray<AutomationLane> automationLanes;
+
+    static constexpr int NUM_FX_SLOTS = 3;
+    FxSlot fxSlots[NUM_FX_SLOTS];
 };
 
 class PluginHost : public juce::AudioProcessorGraph
@@ -35,6 +44,11 @@ public:
 
     bool loadPlugin(int trackIndex, const juce::PluginDescription& desc, juce::String& errorMsg);
     void unloadPlugin(int trackIndex);
+
+    // FX inserts
+    bool loadFx(int trackIndex, int slotIndex, const juce::PluginDescription& desc, juce::String& errorMsg);
+    void unloadFx(int trackIndex, int slotIndex);
+    void setFxBypassed(int trackIndex, int slotIndex, bool bypassed);
 
     Track& getTrack(int index) { return tracks[static_cast<size_t>(index)]; }
     const Track& getTrack(int index) const { return tracks[static_cast<size_t>(index)]; }
@@ -57,7 +71,6 @@ public:
 
     // Spectrum analyzer — set from UI, read from audio thread
     SpectrumComponent* spectrumDisplay = nullptr;
-    LissajousComponent* lissajousDisplay = nullptr;
 
 private:
     juce::AudioPluginFormatManager formatManager;
@@ -81,6 +94,7 @@ private:
 
     void setupGraph();
     void connectTrackAudio(int trackIndex);
+    void rewireTrack(int trackIndex);
     void updateMidiRouting();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginHost)

@@ -1,4 +1,5 @@
 #include "GainProcessor.h"
+#include "LissajousComponent.h"
 #include <cmath>
 
 GainProcessor::GainProcessor()
@@ -57,23 +58,43 @@ void GainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
 
     // Measure peak levels (post-gain)
     float pkL = 0.0f, pkR = 0.0f;
-    if (buffer.getNumChannels() >= 1)
-        pkL = buffer.getMagnitude(0, 0, buffer.getNumSamples());
-    if (buffer.getNumChannels() >= 2)
-        pkR = buffer.getMagnitude(1, 0, buffer.getNumSamples());
+    int numSamples = buffer.getNumSamples();
 
-    // Smooth falloff
+    if (numSamples > 0)
+    {
+        if (buffer.getNumChannels() >= 1)
+        {
+            const float* chanL = buffer.getReadPointer(0);
+            for (int i = 0; i < numSamples; ++i)
+                pkL = juce::jmax(pkL, std::abs(chanL[i]));
+        }
+        if (buffer.getNumChannels() >= 2)
+        {
+            const float* chanR = buffer.getReadPointer(1);
+            for (int i = 0; i < numSamples; ++i)
+                pkR = juce::jmax(pkR, std::abs(chanR[i]));
+        }
+    }
+
+    // Smooth falloff — slow decay so UI (15Hz) can see it
     float prevL = peakLevelL.load();
     float prevR = peakLevelR.load();
-    peakLevelL.store(juce::jmax(pkL, prevL * 0.9f));
-    peakLevelR.store(juce::jmax(pkR, prevR * 0.9f));
+    peakLevelL.store(juce::jmax(pkL, prevL * 0.995f));
+    peakLevelR.store(juce::jmax(pkR, prevR * 0.995f));
 
     // CPU measurement
     auto endTime = juce::Time::getHighResolutionTicks();
     double seconds = juce::Time::highResolutionTicksToSeconds(endTime - startTime);
-    double blockDuration = static_cast<double>(buffer.getNumSamples()) / getSampleRate();
-    float cpu = static_cast<float>(seconds / blockDuration) * 100.0f;
-    // Smooth CPU reading
-    float prevCpu = cpuPercent.load();
-    cpuPercent.store(prevCpu * 0.8f + cpu * 0.2f);
+    double sr = getSampleRate();
+    if (sr > 0.0 && numSamples > 0)
+    {
+        double blockDuration = static_cast<double>(numSamples) / sr;
+        float cpu = static_cast<float>(seconds / blockDuration) * 100.0f;
+        float prevCpu = cpuPercent.load();
+        cpuPercent.store(prevCpu * 0.8f + cpu * 0.2f);
+    }
+
+    // Feed per-track Lissajous
+    if (lissajousDisplay != nullptr && buffer.getNumChannels() >= 2)
+        lissajousDisplay->pushSamples(buffer.getReadPointer(0), buffer.getReadPointer(1), numSamples);
 }

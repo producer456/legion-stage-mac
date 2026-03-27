@@ -58,8 +58,7 @@ private:
     double lastSpaceStopTime = 0.0;
 
     // ── Top Bar ──
-    juce::TextButton prevTrackButton { "<" };
-    juce::TextButton nextTrackButton { ">" };
+    juce::TextButton midiLearnButton { "LEARN" };
     juce::Label trackNameLabel;
     juce::TextButton recordButton { "REC" };
     juce::TextButton playButton { "PLAY" };
@@ -99,15 +98,13 @@ private:
     // MidiInputCallback — intercept SysEx for CI before it goes to collector
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& msg) override;
 
-    // ── Preset Browser ──
-    juce::TextButton presetPrevButton { "<" };
-    juce::Label presetNameLabel;
-    juce::TextButton presetNextButton { ">" };
-    void loadPresetList();
-    void changePreset(int delta);
-    juce::StringArray presetNames;
-    int currentPresetIndex = 0;
-    int presetParamIndex = -1;  // index of "Preset" parameter for VST3 plugins
+    // ── FX Inserts ──
+    static constexpr int NUM_FX_SLOTS = 2;
+    juce::OwnedArray<juce::ComboBox> fxSelectors;
+    juce::OwnedArray<juce::TextButton> fxEditorButtons;
+    void updateFxDisplay();
+    void loadFxPlugin(int slotIndex);
+    void openFxEditor(int slotIndex);
 
     // ── Right Panel — Save/Load/Undo ──
     juce::TextButton saveButton { "Save" };
@@ -137,7 +134,7 @@ private:
 
     // ── MIDI 2.0 CI ──
     Midi2Handler midi2Handler;
-    juce::TextButton midi2Button { "MIDI 2.0" };
+    juce::TextButton midi2Button { "M2" };
     bool midi2Enabled = false;
     juce::String midiOutputId;
     std::unique_ptr<juce::MidiOutput> midiOutput;  // kept open for CI responses
@@ -166,7 +163,8 @@ private:
     std::unique_ptr<PluginEditorWindow> editorWindow;
 
     // Data
-    juce::Array<juce::PluginDescription> pluginDescriptions;
+    juce::Array<juce::PluginDescription> pluginDescriptions;  // instruments
+    juce::Array<juce::PluginDescription> fxDescriptions;      // effects
     juce::Array<juce::MidiDeviceInfo> midiDevices;
     juce::String currentMidiDeviceId;
 
@@ -194,6 +192,27 @@ private:
     void showAudioSettings();
     void updateStatusLabel();
     void applyThemeToControls();
+
+    // ── MIDI Learn ──
+    enum class MidiTarget {
+        None, Volume, Pan, Bpm,
+        Play, Stop, Record, Metronome, Loop,
+        Param0, Param1, Param2, Param3, Param4, Param5,
+        TrackNext, TrackPrev
+    };
+
+    struct MidiMapping {
+        int channel = -1;
+        int ccNumber = -1;
+        MidiTarget target = MidiTarget::None;
+    };
+
+    bool midiLearnActive = false;
+    MidiTarget midiLearnTarget = MidiTarget::None;
+    juce::Array<MidiMapping> midiMappings;
+    void startMidiLearn(MidiTarget target);
+    void processMidiLearnCC(int channel, int cc, int value);
+    void applyMidiCC(const MidiMapping& mapping, int value);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

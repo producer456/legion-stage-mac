@@ -104,8 +104,6 @@ void TimelineComponent::timerCallback()
             scrollX = pos - 1.0;
             if (scrollX < 0.0) scrollX = 0.0;
         }
-
-        repaint();
     }
     else
     {
@@ -114,9 +112,11 @@ void TimelineComponent::timerCallback()
         {
             scrollX = pos;
             if (scrollX < 0.0) scrollX = 0.0;
-            repaint();
         }
     }
+
+    // Always repaint so meters update even when transport is stopped
+    repaint();
 }
 
 // ── Mouse handling ───────────────────────────────────────────────────────────
@@ -124,6 +124,16 @@ void TimelineComponent::timerCallback()
 void TimelineComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+
+    // Second finger = start touch scroll
+    if (e.source.getIndex() > 0)
+    {
+        touchScrolling = true;
+        touchScrollStart = e.position;
+        touchScrollStartX = scrollX;
+        touchScrollStartY = scrollY;
+        return;
+    }
 
     float mx = static_cast<float>(e.x);
     float my = static_cast<float>(e.y);
@@ -213,6 +223,23 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 {
+    // Two-finger touch scroll
+    if (touchScrolling && e.source.getIndex() > 0)
+    {
+        float dx = e.position.x - touchScrollStart.x;
+        float dy = e.position.y - touchScrollStart.y;
+
+        scrollX = touchScrollStartX - dx / pixelsPerBeat;
+        if (scrollX < 0.0) scrollX = 0.0;
+
+        int totalContent = PluginHost::NUM_TRACKS * trackHeight;
+        int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
+        scrollY = juce::jlimit(0, maxScroll, touchScrollStartY - static_cast<int>(dy));
+
+        repaint();
+        return;
+    }
+
     // Loop region drag on header
     if (draggingLoop)
     {
@@ -320,8 +347,11 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
     repaint();
 }
 
-void TimelineComponent::mouseUp(const juce::MouseEvent& /*e*/)
+void TimelineComponent::mouseUp(const juce::MouseEvent& e)
 {
+    if (e.source.getIndex() > 0)
+        touchScrolling = false;
+
     draggingLoop = false;
 
     // Handle ARM button release — distinguish tap vs long press
@@ -425,24 +455,51 @@ void TimelineComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::Mo
 {
     if (e.mods.isCtrlDown())
     {
-        // Ctrl+wheel = zoom
+        // Ctrl+wheel = zoom centered on mouse position
+        double beatAtMouse = xToBeat(static_cast<float>(e.x));
         double zoomFactor = 1.0 + w.deltaY * 0.3;
-        pixelsPerBeat = juce::jlimit(10.0, 200.0, pixelsPerBeat * zoomFactor);
-    }
-    else if (e.mods.isShiftDown() || std::abs(w.deltaX) > std::abs(w.deltaY))
-    {
-        // Shift+wheel or horizontal scroll = timeline scroll
-        double delta = (w.deltaX != 0.0f) ? w.deltaX : w.deltaY;
-        scrollX -= delta * 4.0;
+        pixelsPerBeat = juce::jlimit(10.0, 300.0, pixelsPerBeat * zoomFactor);
+        // Keep the beat under the mouse in the same screen position
+        scrollX = beatAtMouse - (e.x - trackLabelWidth) / pixelsPerBeat;
         if (scrollX < 0.0) scrollX = 0.0;
     }
     else
     {
-        // Vertical scroll = track scroll
-        int totalContent = PluginHost::NUM_TRACKS * trackHeight;
-        int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
-        scrollY = juce::jlimit(0, maxScroll, scrollY - static_cast<int>(w.deltaY * trackHeight));
+        // Two-finger scroll: horizontal and vertical simultaneously
+        if (w.deltaX != 0.0f)
+        {
+            scrollX -= w.deltaX * 4.0;
+            if (scrollX < 0.0) scrollX = 0.0;
+        }
+
+        if (w.deltaY != 0.0f)
+        {
+            if (e.mods.isShiftDown())
+            {
+                // Shift+wheel = horizontal scroll
+                scrollX -= w.deltaY * 4.0;
+                if (scrollX < 0.0) scrollX = 0.0;
+            }
+            else
+            {
+                // Vertical scroll = track scroll
+                int totalContent = PluginHost::NUM_TRACKS * trackHeight;
+                int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
+                scrollY = juce::jlimit(0, maxScroll, scrollY - static_cast<int>(w.deltaY * trackHeight));
+            }
+        }
     }
+    repaint();
+}
+
+void TimelineComponent::mouseMagnify(const juce::MouseEvent& e, float scaleFactor)
+{
+    // Pinch-to-zoom centered on the pinch point
+    double beatAtPinch = xToBeat(static_cast<float>(e.x));
+    pixelsPerBeat = juce::jlimit(10.0, 300.0, pixelsPerBeat * static_cast<double>(scaleFactor));
+    // Keep the beat under the pinch center in the same screen position
+    scrollX = beatAtPinch - (e.x - trackLabelWidth) / pixelsPerBeat;
+    if (scrollX < 0.0) scrollX = 0.0;
     repaint();
 }
 
@@ -703,7 +760,7 @@ void TimelineComponent::createEmptyClip(int trackIndex, double beatPos)
 
 void TimelineComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1a1a1a));
+    g.fillAll(juce::Colour(0xff000000));
     drawHeader(g);
     drawTrackLanes(g);
     drawClips(g);
@@ -731,7 +788,7 @@ void TimelineComponent::recalcTrackHeight()
 
 void TimelineComponent::drawHeader(juce::Graphics& g)
 {
-    g.setColour(juce::Colour(0xff2a2a2a));
+    g.setColour(juce::Colour(0xff0a0a0a));
     g.fillRect(0, 0, getWidth(), headerHeight);
 
     double firstBeat = std::floor(scrollX / gridResolution) * gridResolution;
@@ -788,9 +845,9 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
         // Selected track highlight
         bool isSelected = (t == pluginHost.getSelectedTrack());
         if (isSelected)
-            g.setColour(juce::Colour(0xff2a3a4a));
+            g.setColour(juce::Colour(0xff0a1520));
         else
-            g.setColour(t % 2 == 0 ? juce::Colour(0xff1e1e1e) : juce::Colour(0xff222222));
+            g.setColour(t % 2 == 0 ? juce::Colour(0xff000000) : juce::Colour(0xff060606));
         g.fillRect(0, y, getWidth(), trackHeight);
 
         g.setColour(juce::Colour(0xff333333));
@@ -804,7 +861,7 @@ void TimelineComponent::drawTrackLanes(juce::Graphics& g)
 juce::Rectangle<int> TimelineComponent::getSelectButtonRect(int trackIndex) const
 {
     int y = headerHeight + trackIndex * trackHeight - scrollY;
-    return { 2, y + 2, trackLabelWidth - 40, trackHeight - 4 };
+    return { 16, y + 2, trackLabelWidth - 54, trackHeight - 4 };
 }
 
 juce::Rectangle<int> TimelineComponent::getMuteButtonRect(int trackIndex) const
@@ -875,14 +932,14 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
         g.setFont(13.0f);
         g.drawText("S", soloRect, juce::Justification::centred);
 
-        // VU meter + CPU meter
+        // VU meter (vertical) + CPU meter
         if (track.gainProcessor != nullptr)
         {
             int y = headerHeight + t * trackHeight - scrollY;
-            int meterY = y + trackHeight - 10;
-            int meterW = trackLabelWidth - 44;
+            int meterH = trackHeight - 6;
+            int meterX = 2;
 
-            // Get theme meter color (ice-blue by default)
+            // Get theme meter color
             uint32_t meterColor = 0xffc8e4ff;
             uint32_t meterBgColor = 0xff1a1a22;
             uint32_t cpuColor = 0xff44dd66;
@@ -891,34 +948,32 @@ void TimelineComponent::drawTrackControls(juce::Graphics& g)
                 meterBgColor = lnf->getTheme().bodyDark;
             }
 
-            float pkL = track.gainProcessor->peakLevelL.load();
-            float pkR = track.gainProcessor->peakLevelR.load();
-            float cpu = track.gainProcessor->cpuPercent.load();
+            float pkL = juce::jlimit(0.0f, 1.0f, track.gainProcessor->peakLevelL.load());
+            float pkR = juce::jlimit(0.0f, 1.0f, track.gainProcessor->peakLevelR.load());
+            float cpu = juce::jlimit(0.0f, 100.0f, track.gainProcessor->cpuPercent.load());
 
-            // Clamp
-            pkL = juce::jlimit(0.0f, 1.0f, pkL);
-            pkR = juce::jlimit(0.0f, 1.0f, pkR);
-            cpu = juce::jlimit(0.0f, 100.0f, cpu);
+            int fillL = static_cast<int>(pkL * meterH);
+            int fillR = static_cast<int>(pkR * meterH);
 
-            // VU background
+            // VU background — two thin vertical bars
             g.setColour(juce::Colour(meterBgColor));
-            g.fillRect(4, meterY, meterW, 3);
-            g.fillRect(4, meterY + 4, meterW, 3);
+            g.fillRect(meterX, y + 3, 3, meterH);
+            g.fillRect(meterX + 4, y + 3, 3, meterH);
 
-            // VU fill — L channel
+            // VU fill — L channel (bottom-up)
             g.setColour(pkL > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
-            g.fillRect(4, meterY, static_cast<int>(pkL * meterW), 3);
+            g.fillRect(meterX, y + 3 + meterH - fillL, 3, fillL);
 
-            // VU fill — R channel
+            // VU fill — R channel (bottom-up)
             g.setColour(pkR > 0.9f ? juce::Colour(0xffee4444) : juce::Colour(meterColor));
-            g.fillRect(4, meterY + 4, static_cast<int>(pkR * meterW), 3);
+            g.fillRect(meterX + 4, y + 3 + meterH - fillR, 3, fillR);
 
-            // CPU bar — thin line below VU, green normally, red when high
+            // CPU bar — thin vertical bar next to VU
             if (cpu > 0.1f)
             {
+                int fillCpu = static_cast<int>((cpu / 100.0f) * meterH);
                 g.setColour(cpu > 50.0f ? juce::Colour(0xffee4444) : juce::Colour(cpuColor));
-                int cpuW = static_cast<int>((cpu / 100.0f) * meterW);
-                g.fillRect(4, meterY + 8, cpuW, 1);
+                g.fillRect(meterX + 9, y + 3 + meterH - fillCpu, 2, fillCpu);
             }
         }
 
@@ -996,7 +1051,7 @@ void TimelineComponent::drawClips(juce::Graphics& g)
             if (state == ClipSlot::Playing)
                 clipColor = juce::Colour(0xff338844);
             else if (state == ClipSlot::Recording)
-                clipColor = juce::Colour(0xff883333);
+                clipColor = juce::Colour(0xff5588bb);
             else if (state == ClipSlot::Armed)
                 clipColor = juce::Colour(0xff884400);
             else

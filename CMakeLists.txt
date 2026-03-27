@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Sequencer VERSION 0.1.0)
+project(Sequencer VERSION 1.1.0)
 
 # ASIO SDK path — JUCE needs this to compile ASIO support
 set(JUCE_ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk" CACHE PATH "ASIO SDK location")
@@ -7,7 +7,7 @@ set(JUCE_ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk" CACHE PATH "AS
 add_subdirectory(libs/JUCE)
 
 juce_add_gui_app(Sequencer
-    PRODUCT_NAME "Sequencer"
+    PRODUCT_NAME "Legion Stage"
     COMPANY_NAME "Dev"
 )
 
