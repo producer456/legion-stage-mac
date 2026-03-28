@@ -692,7 +692,8 @@ MainComponent::MainComponent()
         auto* slider = new juce::Slider();
         slider->setRange(0.0, 1.0, 0.001);
         slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
+        slider->setTextBoxStyle(juce::Slider::TextBoxBelow, true, 60, 14);
+        slider->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
         slider->setEnabled(false);
 
         int paramIdx = i;
@@ -1781,37 +1782,34 @@ void MainComponent::paint(juce::Graphics& g)
         {
             // Custom top bar (e.g. wood grain)
             int sidePW = lnf->getSidePanelWidth();
-            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, 60);
+            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, 80);
         }
         else
         {
             g.setColour(juce::Colour(c.bodyLight));
-            g.fillRect(0, 0, getWidth(), 60);
+            g.fillRect(0, 0, getWidth(), 80);
         }
     }
     else
     {
         g.setColour(juce::Colour(c.bodyLight));
-        g.fillRect(0, 0, getWidth(), 60);
+        g.fillRect(0, 0, getWidth(), 80);
     }
 
     // Toolbar background
     g.setColour(juce::Colour(c.bodyDark));
-    g.fillRect(0, 60, getWidth(), 50);
+    g.fillRect(0, 80, getWidth(), 65);
 
-    // Panel dividers
+    // Panel dividers (stop at right panel edge)
     g.setColour(juce::Colour(c.border));
-    g.drawHorizontalLine(60, 0, static_cast<float>(getWidth()));
-    g.drawHorizontalLine(110, 0, static_cast<float>(getWidth()));
+    g.drawHorizontalLine(80, 0, static_cast<float>(getWidth() - 180));
+    g.drawHorizontalLine(145, 0, static_cast<float>(getWidth() - 180));
 
     // Accent stripe at top
     g.setColour(juce::Colour(c.accentStripe));
     g.fillRect(0, 0, getWidth(), 2);
 
-    // Right panel border
     int rightPanelX = getWidth() - 180;
-    g.setColour(juce::Colour(c.border));
-    g.drawVerticalLine(rightPanelX, 60, static_cast<float>(getHeight()));
 
     // Draw decorative side panels if the theme provides them
     if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
@@ -1836,7 +1834,7 @@ void MainComponent::resized()
         }
     }
 
-    int topBarH = 60;
+    int topBarH = 80;
     int bottomBarH = 45;
     int rightPanelW = 180;
 
@@ -2081,7 +2079,7 @@ void MainComponent::resized()
     setVisControlsVisible();
 
     // ── Edit Toolbar ──
-    auto toolbar = area.removeFromTop(50).reduced(4, 4);
+    auto toolbar = area.removeFromTop(65).reduced(4, 4);
     newClipButton.setBounds(toolbar.removeFromLeft(95));
     toolbar.removeFromLeft(3);
     deleteClipButton.setBounds(toolbar.removeFromLeft(80));

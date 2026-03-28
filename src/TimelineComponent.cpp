@@ -822,7 +822,7 @@ void TimelineComponent::recalcTrackHeight()
 {
     int available = getHeight() - headerHeight;
     if (available > 0)
-        trackHeight = juce::jmax(48, available / visibleTracks);
+        trackHeight = juce::jmax(40, available / visibleTracks);
 
     // Clamp scroll
     int totalContent = PluginHost::NUM_TRACKS * trackHeight;
