@@ -205,7 +205,7 @@ protected:
             if (on)
             {
                 // Cycling countdown digits
-                int digit = 3 - (static_cast<int>(t * 2.0f) % 4);
+                int digit = 3 - (static_cast<int>(t * 4.0f) % 4);
                 if (digit <= 0) digit = 4;
                 // Draw digit as pixels (simple 3x5 font)
                 auto drawDigit = [&](int d, int ox, int oy, juce::Colour c)
@@ -242,7 +242,7 @@ protected:
             if (on)
             {
                 // Radar sweep beam
-                float sweepA = t * 4.0f;
+                float sweepA = t * 6.0f;
                 for (int r = 1; r <= 4; ++r)
                     oledPlot(oled, icx + static_cast<int>(std::cos(sweepA) * r),
                              icy + static_cast<int>(std::sin(sweepA) * r), bright);
@@ -259,7 +259,7 @@ protected:
             for (int i = 0; i < 5; ++i)
             {
                 int fx = icx - 6 + i * 3;
-                int thumbY = icy + static_cast<int>(std::sin(i * 1.5f + (on ? t * 0.5f : 0)) * 2);
+                int thumbY = icy + static_cast<int>(std::sin(i * 1.5f + (on ? t * 3.0f : 0)) * 2);
                 oledLine(oled, fx, 2, fx, OLED_H - 3, dim);
                 oledPlot(oled, fx - 1, thumbY, col);
                 oledPlot(oled, fx, thumbY, col);
@@ -279,28 +279,29 @@ protected:
         }
         else if (text == "KEYS")
         {
-            // Piano keys
+            // Horizontal piano keys (viewed from above)
+            int keyTop = icy - 5;
             for (int i = 0; i < 7; ++i)
             {
-                int kx = icx - 6 + i * 2;
-                for (int ky = icy - 3; ky <= icy + 3; ++ky)
+                int ky = keyTop + i * 2;
+                for (int kx = icx - 5; kx <= icx + 5; ++kx)
                     oledPlot(oled, kx, ky, col);
             }
-            // Black keys
+            // Black keys (shorter, from left side)
             int bk[] = { 0, 1, 3, 4, 5 };
             for (int b : bk)
             {
-                int kx = icx - 6 + b * 2 + 1;
-                for (int ky = icy - 3; ky <= icy; ++ky)
+                int ky = keyTop + b * 2 + 1;
+                for (int kx = icx - 5; kx <= icx; ++kx)
                     oledPlot(oled, kx, ky, juce::Colour(0xff000000));
             }
             if (on)
             {
-                // Wave of key presses
+                // Animated key press glow
                 int pressIdx = static_cast<int>(t * 5.0f) % 7;
-                int kx = icx - 6 + pressIdx * 2;
-                oledPlot(oled, kx, icy + 3, bright);
-                oledPlot(oled, kx, icy + 2, bright.withAlpha(0.5f));
+                int ky = keyTop + pressIdx * 2;
+                oledPlot(oled, icx + 5, ky, bright);
+                oledPlot(oled, icx + 4, ky, bright.withAlpha(0.5f));
             }
         }
         else if (text == "VIS")
@@ -362,7 +363,7 @@ protected:
             if (on)
             {
                 // Pixelated mushroom cloud — rises and billows
-                float phase = std::fmod(t * 1.5f, 4.0f); // 4-second cycle, slower
+                float phase = std::fmod(t * 3.5f, 4.0f); // 4-second cycle
 
                 // Ground line
                 for (int x = 4; x < OLED_W - 4; ++x)
