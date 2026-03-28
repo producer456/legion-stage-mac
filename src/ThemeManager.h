@@ -8,12 +8,11 @@
 #include "TerminalLookAndFeel.h"
 #include "JournalLookAndFeel.h"
 #include "LinenLookAndFeel.h"
-#include "MidnightLookAndFeel.h"
 #include "IceLookAndFeel.h"
 #include "IndigoLookAndFeel.h"
-#include "NeonLookAndFeel.h"
-#include "SteelLookAndFeel.h"
 #include "FrostLookAndFeel.h"
+#include "KeystageLookAndFeel.h"
+#include "BlueprintLookAndFeel.h"
 
 class ThemeManager
 {
@@ -26,12 +25,11 @@ public:
         Terminal,
         Journal,
         Linen,
-        Midnight,
         Ice,
         Indigo,
-        Neon,
-        Steel,
         Frost,
+        Keystage,
+        Blueprint,
         NumThemes
     };
 
@@ -43,12 +41,11 @@ public:
         themes[Terminal] = std::make_unique<TerminalLookAndFeel>();
         themes[Journal]  = std::make_unique<JournalLookAndFeel>();
         themes[Linen]    = std::make_unique<LinenLookAndFeel>();
-        themes[Midnight] = std::make_unique<MidnightLookAndFeel>();
         themes[Ice]      = std::make_unique<IceLookAndFeel>();
         themes[Indigo]   = std::make_unique<IndigoLookAndFeel>();
-        themes[Neon]     = std::make_unique<NeonLookAndFeel>();
-        themes[Steel]    = std::make_unique<SteelLookAndFeel>();
         themes[Frost]    = std::make_unique<FrostLookAndFeel>();
+        themes[Keystage]  = std::make_unique<KeystageLookAndFeel>();
+        themes[Blueprint] = std::make_unique<BlueprintLookAndFeel>();
     }
 
     // Apply the given theme to a component tree
@@ -79,13 +76,12 @@ public:
             case Terminal: return "Terminal";
             case Journal:  return "Journal";
             case Linen:    return "Linen";
-            case Midnight: return "Midnight";
-            case Ice:      return "Ice";
-            case Indigo:   return "Indigo";
-            case Neon:     return "Neon";
-            case Steel:    return "Steel";
-            case Frost:    return "Frost";
-            default:       return "Unknown";
+            case Ice:       return "Ice";
+            case Indigo:    return "Indigo";
+            case Frost:     return "Frost";
+            case Keystage:  return "Keystage";
+            case Blueprint: return "Blueprint";
+            default:        return "Unknown";
         }
     }
 

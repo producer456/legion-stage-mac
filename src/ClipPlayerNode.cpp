@@ -17,10 +17,10 @@ void ClipPlayerNode::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
 {
     int numSamples = buffer.getNumSamples();
 
-    // Send all-notes-off if flagged (prevents stuck notes)
+    // Send all-notes-off if flagged (stop/panic — hard kill)
     if (sendAllNotesOff.exchange(false))
     {
-        killActiveNotes(midi, 0);
+        killActiveNotes(midi, 0, true);
     }
 
     // Check if we should start recording (not during count-in)
@@ -326,8 +326,9 @@ void ClipPlayerNode::stopAllSlots()
         stopSlot(i);
 }
 
-void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset)
+void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard)
 {
+    // Send explicit note-offs for every tracked note — allows release tails
     for (int key : activePlaybackNotes)
     {
         int ch = (key >> 8) & 0xF;
@@ -336,10 +337,14 @@ void ClipPlayerNode::killActiveNotes(juce::MidiBuffer& midi, int sampleOffset)
     }
     activePlaybackNotes.clear();
 
-    // Belt and suspenders — also send CC 123 (all notes off) and CC 120 (all sound off)
-    for (int ch = 1; ch <= 16; ++ch)
+    // Hard kill: also send CC 120 (all sound off) — cuts audio instantly
+    // Only use for stop/panic, NOT for loop wraps
+    if (hard)
     {
-        midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
-        midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
+        for (int ch = 1; ch <= 16; ++ch)
+        {
+            midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
+            midi.addEvent(juce::MidiMessage::allSoundOff(ch), sampleOffset);
+        }
     }
 }

@@ -63,7 +63,7 @@ private:
     // Track active notes so we can send explicit note-offs on loop wrap
     // Encoded as (channel << 8) | noteNumber
     std::set<int> activePlaybackNotes;
-    void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset);
+    void killActiveNotes(juce::MidiBuffer& midi, int sampleOffset, bool hard = false);
 
     void processClipPlayback(int slotIndex, juce::MidiBuffer& midi, int numSamples);
     void processRecording(const juce::MidiBuffer& incomingMidi, int numSamples);

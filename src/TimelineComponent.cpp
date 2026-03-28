@@ -94,7 +94,15 @@ void TimelineComponent::timerCallback()
     float playheadX = beatToX(pos);
     float viewWidth = static_cast<float>(getWidth());
 
-    if (engine.isPlaying())
+    // Check if user scroll override has expired
+    if (userScrollActive)
+    {
+        double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (now > userScrollExpireTime)
+            userScrollActive = false;
+    }
+
+    if (engine.isPlaying() && !userScrollActive)
     {
         // Auto-scroll to follow playhead during playback
         if (playheadX > viewWidth * 0.8f)
@@ -105,7 +113,7 @@ void TimelineComponent::timerCallback()
             if (scrollX < 0.0) scrollX = 0.0;
         }
     }
-    else
+    else if (!engine.isPlaying() && !userScrollActive)
     {
         // When stopped, check if playhead moved (e.g. reset to 0) and follow it
         if (playheadX < static_cast<float>(trackLabelWidth) || playheadX > viewWidth)
@@ -125,13 +133,20 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
 
-    // Second finger = start touch scroll
+    // Track first finger position for pinch distance calculation
+    if (e.source.getIndex() == 0)
+        firstFingerPos = e.position;
+
+    // Second finger = start touch scroll + pinch zoom
     if (e.source.getIndex() > 0)
     {
         touchScrolling = true;
         touchScrollStart = e.position;
         touchScrollStartX = scrollX;
         touchScrollStartY = scrollY;
+        pinchStartPixelsPerBeat = pixelsPerBeat;
+        pinchStartDistance = firstFingerPos.getDistanceFrom(e.position);
+        if (pinchStartDistance < 1.0f) pinchStartDistance = 1.0f;
         return;
     }
 
@@ -223,14 +238,39 @@ void TimelineComponent::mouseDown(const juce::MouseEvent& e)
 
 void TimelineComponent::mouseDrag(const juce::MouseEvent& e)
 {
-    // Two-finger touch scroll
+    // Track first finger movement
+    if (e.source.getIndex() == 0)
+        firstFingerPos = e.position;
+
+    // Two-finger touch scroll + pinch zoom
     if (touchScrolling && e.source.getIndex() > 0)
     {
         float dx = e.position.x - touchScrollStart.x;
         float dy = e.position.y - touchScrollStart.y;
 
-        scrollX = touchScrollStartX - dx / pixelsPerBeat;
-        if (scrollX < 0.0) scrollX = 0.0;
+        // Pinch zoom — compare current finger distance to start distance
+        float currentDistance = firstFingerPos.getDistanceFrom(e.position);
+        if (pinchStartDistance > 1.0f && currentDistance > 1.0f)
+        {
+            float pinchRatio = currentDistance / pinchStartDistance;
+            double newPPB = juce::jlimit(10.0, 300.0, pinchStartPixelsPerBeat * static_cast<double>(pinchRatio));
+
+            // Zoom centered between the two fingers
+            float centerX = (firstFingerPos.x + e.position.x) * 0.5f;
+            double beatAtCenter = touchScrollStartX + (centerX - trackLabelWidth) / pinchStartPixelsPerBeat;
+            pixelsPerBeat = newPPB;
+            scrollX = beatAtCenter - (centerX - trackLabelWidth) / pixelsPerBeat;
+            if (scrollX < 0.0) scrollX = 0.0;
+        }
+        else
+        {
+            scrollX = touchScrollStartX - dx / pixelsPerBeat;
+            if (scrollX < 0.0) scrollX = 0.0;
+        }
+
+        // Suppress auto-follow
+        userScrollActive = true;
+        userScrollExpireTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
 
         int totalContent = PluginHost::NUM_TRACKS * trackHeight;
         int maxScroll = juce::jmax(0, totalContent - (getHeight() - headerHeight));
@@ -488,6 +528,11 @@ void TimelineComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::Mo
             }
         }
     }
+
+    // Suppress auto-follow for 3 seconds after user scrolls
+    userScrollActive = true;
+    userScrollExpireTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0;
+
     repaint();
 }
 

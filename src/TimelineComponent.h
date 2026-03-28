@@ -54,10 +54,11 @@ public:
     void quantizeSelectedClip();
 
     // Navigation
-    void zoomIn() { pixelsPerBeat = juce::jmin(200.0, pixelsPerBeat * 1.3); repaint(); }
-    void zoomOut() { pixelsPerBeat = juce::jmax(10.0, pixelsPerBeat / 1.3); repaint(); }
-    void scrollLeft() { scrollX = juce::jmax(0.0, scrollX - 4.0); repaint(); }
-    void scrollRight() { scrollX += 4.0; repaint(); }
+    void suppressAutoFollow() { userScrollActive = true; userScrollExpireTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 3.0; }
+    void zoomIn() { pixelsPerBeat = juce::jmin(200.0, pixelsPerBeat * 1.3); suppressAutoFollow(); repaint(); }
+    void zoomOut() { pixelsPerBeat = juce::jmax(10.0, pixelsPerBeat / 1.3); suppressAutoFollow(); repaint(); }
+    void scrollLeft() { scrollX = juce::jmax(0.0, scrollX - 4.0); suppressAutoFollow(); repaint(); }
+    void scrollRight() { scrollX += 4.0; suppressAutoFollow(); repaint(); }
 private:
 
     // Selection / interaction
@@ -100,11 +101,18 @@ private:
     juce::Rectangle<int> getSoloButtonRect(int trackIndex) const;
     void handleTrackControlClick(int trackIndex, float x, float y);
 
-    // Touch scroll — track initial position for inertia
+    // Touch scroll + pinch zoom
     bool touchScrolling = false;
     juce::Point<float> touchScrollStart;
+    juce::Point<float> firstFingerPos;     // track first finger for pinch distance
     double touchScrollStartX = 0.0;
     int touchScrollStartY = 0;
+    double pinchStartPixelsPerBeat = 0.0;
+    float pinchStartDistance = 0.0f;
+
+    // User scroll override — suppress auto-follow while user is scrolling
+    bool userScrollActive = false;
+    double userScrollExpireTime = 0.0;  // time when auto-follow resumes
 
     // Loop region dragging
     bool draggingLoop = false;

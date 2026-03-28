@@ -15,6 +15,13 @@ public:
 
     const DawTheme& getTheme() const { return theme; }
 
+    // Side panel width — override to add decorative side panels (e.g. wood cheeks)
+    virtual int getSidePanelWidth() const { return 0; }
+    virtual void drawSidePanels(juce::Graphics&, int /*width*/, int /*height*/) {}
+
+    // Top bar background — override for custom textures (e.g. wood grain)
+    virtual void drawTopBarBackground(juce::Graphics&, int /*x*/, int /*y*/, int /*width*/, int /*height*/) {}
+
     // The font name used for UI controls (monospace by default)
     virtual juce::String getUIFontName() const { return "Consolas"; }
 

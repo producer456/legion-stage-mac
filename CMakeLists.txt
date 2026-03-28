@@ -38,18 +38,19 @@ target_sources(Sequencer PRIVATE
     src/TerminalLookAndFeel.h
     src/JournalLookAndFeel.h
     src/LinenLookAndFeel.h
-    src/MidnightLookAndFeel.h
     src/IceLookAndFeel.h
     src/IndigoLookAndFeel.h
-    src/NeonLookAndFeel.h
-    src/SteelLookAndFeel.h
     src/FrostLookAndFeel.h
+    src/KeystageLookAndFeel.h
+    src/BlueprintLookAndFeel.h
     src/SpectrumComponent.h
     src/LissajousComponent.h
     src/GForceComponent.h
     src/GeissComponent.h
     src/ProjectMComponent.h
     src/TouchPianoComponent.h
+    src/MixerComponent.h
+    src/SplashComponent.h
     src/ThemeManager.h
     src/TimelineComponent.h
     src/TimelineComponent.cpp

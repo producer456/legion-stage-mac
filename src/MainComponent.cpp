@@ -2,7 +2,7 @@
 
 MainComponent::MainComponent()
 {
-    themeManager.setTheme(ThemeManager::Ice, this);
+    themeManager.setTheme(ThemeManager::Keystage, this);
 
     auto result = deviceManager.initialiseWithDefaultDevices(0, 2);
     if (result.isNotEmpty())
@@ -295,7 +295,8 @@ MainComponent::MainComponent()
     visSelector.addItem("G-Force", 3);
     visSelector.addItem("Geiss", 4);
     visSelector.addItem("MilkDrop", 5);
-    visSelector.setSelectedId(1, juce::dontSendNotification);
+    visSelector.setSelectedId(2, juce::dontSendNotification);  // Lissajous
+    currentVisMode = 1;
     visSelector.onChange = [this] {
         currentVisMode = visSelector.getSelectedId() - 1;
         resized();
@@ -562,6 +563,20 @@ MainComponent::MainComponent()
         else      sendNoteOff(note);
     };
 
+    // ── Mixer ──
+    mixerComponent = std::make_unique<MixerComponent>(pluginHost);
+    mixerComponent->onTrackSelected = [this](int track) { selectTrack(track); };
+    addChildComponent(*mixerComponent);  // hidden by default
+
+    addAndMakeVisible(mixerButton);
+    mixerButton.setClickingTogglesState(true);
+    mixerButton.onClick = [this] {
+        mixerVisible = mixerButton.getToggleState();
+        mixerComponent->setVisible(mixerVisible);
+        resized();
+        repaint();
+    };
+
     addAndMakeVisible(pianoToggleButton);
     pianoToggleButton.setClickingTogglesState(true);
     pianoToggleButton.onClick = [this] {
@@ -636,13 +651,14 @@ MainComponent::MainComponent()
     addAndMakeVisible(themeSelector);
     for (int i = 0; i < ThemeManager::NumThemes; ++i)
         themeSelector.addItem(ThemeManager::getThemeName(static_cast<ThemeManager::Theme>(i)), i + 1);
-    themeSelector.setSelectedId(ThemeManager::Ice + 1, juce::dontSendNotification);
+    themeSelector.setSelectedId(ThemeManager::Keystage + 1, juce::dontSendNotification);
     themeSelector.onChange = [this] {
         auto idx = themeSelector.getSelectedId() - 1;
         if (idx >= 0 && idx < ThemeManager::NumThemes)
         {
             themeManager.setTheme(static_cast<ThemeManager::Theme>(idx), this);
             applyThemeToControls();
+            resized();
         }
     };
 
@@ -730,6 +746,9 @@ MainComponent::MainComponent()
     // Apply initial theme colors to all controls
     applyThemeToControls();
 
+    // Force layout after all controls are set up (handles side panels etc.)
+    juce::MessageManager::callAsync([this] { resized(); repaint(); });
+
     startTimerHz(15);
 }
 
@@ -784,6 +803,12 @@ void MainComponent::timerCallback()
         recordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(themeManager.getColors().redDark));
         recordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(themeManager.getColors().red));
     }
+
+    // Sync transport button toggle states for animated OLED icons
+    playButton.setToggleState(eng.isPlaying(), juce::dontSendNotification);
+    metronomeButton.setToggleState(eng.isMetronomeOn(), juce::dontSendNotification);
+    loopButton.setToggleState(eng.isLoopEnabled(), juce::dontSendNotification);
+    countInButton.setToggleState(eng.isCountInEnabled(), juce::dontSendNotification);
 
     // Auto-snapshot when recording stops (detect transition)
     static bool wasRecording = false;
@@ -945,7 +970,9 @@ void MainComponent::openPluginEditor()
     auto& track = pluginHost.getTrack(selectedTrackIndex);
     if (track.plugin == nullptr) return;
     closePluginEditor();
-    currentEditor.reset(track.plugin->createEditorIfNeeded());
+
+    // Always create a fresh editor — createEditorIfNeeded can return stale cached editors
+    currentEditor.reset(track.plugin->createEditor());
     if (currentEditor == nullptr) return;
     editorWindow = std::make_unique<PluginEditorWindow>(track.plugin->getName(), currentEditor.get(),
         [this] { closePluginEditor(); });
@@ -953,8 +980,9 @@ void MainComponent::openPluginEditor()
 
 void MainComponent::closePluginEditor()
 {
+    // Destroy window first (removes editor from component tree), then release editor
     editorWindow = nullptr;
-    currentEditor = nullptr;
+    currentEditor.reset();
 }
 
 void MainComponent::playTestNote()
@@ -1683,8 +1711,25 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(c.body));
 
     // Top bar background
-    g.setColour(juce::Colour(c.bodyLight));
-    g.fillRect(0, 0, getWidth(), 60);
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        if (lnf->getSidePanelWidth() > 0)
+        {
+            // Custom top bar (e.g. wood grain)
+            int sidePW = lnf->getSidePanelWidth();
+            lnf->drawTopBarBackground(g, sidePW, 0, getWidth() - sidePW * 2, 60);
+        }
+        else
+        {
+            g.setColour(juce::Colour(c.bodyLight));
+            g.fillRect(0, 0, getWidth(), 60);
+        }
+    }
+    else
+    {
+        g.setColour(juce::Colour(c.bodyLight));
+        g.fillRect(0, 0, getWidth(), 60);
+    }
 
     // Toolbar background
     g.setColour(juce::Colour(c.bodyDark));
@@ -1700,20 +1745,39 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillRect(0, 0, getWidth(), 2);
 
     // Right panel border
-    int rightPanelX = getWidth() - 200;
+    int rightPanelX = getWidth() - 180;
     g.setColour(juce::Colour(c.border));
     g.drawVerticalLine(rightPanelX, 60, static_cast<float>(getHeight()));
+
+    // Draw decorative side panels if the theme provides them
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        if (lnf->getSidePanelWidth() > 0)
+            lnf->drawSidePanels(g, getWidth(), getHeight());
+    }
 }
 
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
+
+    // Inset for decorative side panels (e.g. Keystage wood cheeks)
+    if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
+    {
+        int sidePW = lnf->getSidePanelWidth();
+        if (sidePW > 0)
+        {
+            area.removeFromLeft(sidePW);
+            area.removeFromRight(sidePW);
+        }
+    }
+
     int topBarH = 60;
     int bottomBarH = 45;
-    int rightPanelW = 200;
+    int rightPanelW = 180;
 
     // ── Top Bar ──
-    auto topBar = area.removeFromTop(topBarH).reduced(4, 4);
+    auto topBar = area.removeFromTop(topBarH).reduced(4, 10);
 
     midiLearnButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(4);
@@ -1734,7 +1798,9 @@ void MainComponent::resized()
     topBar.removeFromLeft(3);
     panicButton.setBounds(topBar.removeFromLeft(65));
     topBar.removeFromLeft(3);
-    pianoToggleButton.setBounds(topBar.removeFromLeft(55));
+    pianoToggleButton.setBounds(topBar.removeFromLeft(50));
+    topBar.removeFromLeft(3);
+    mixerButton.setBounds(topBar.removeFromLeft(42));
     topBar.removeFromLeft(4);
     scrollLeftButton.setBounds(topBar.removeFromLeft(40));
     topBar.removeFromLeft(2);
@@ -1948,7 +2014,10 @@ void MainComponent::resized()
     geissDisplay.setVisible(currentVisMode == 3);
     projectMDisplay.setVisible(currentVisMode == 4);
     visExitButton.setVisible(false);
-    projectorButton.setVisible(false);
+    projectorButton.setVisible(true);
+    visSelector.setVisible(true);
+    fullscreenButton.setVisible(true);
+    midi2Button.setVisible(true);
     setVisControlsVisible();
 
     // ── Edit Toolbar ──
@@ -1959,40 +2028,40 @@ void MainComponent::resized()
     toolbar.removeFromLeft(3);
     duplicateClipButton.setBounds(toolbar.removeFromLeft(95));
     toolbar.removeFromLeft(3);
-    splitClipButton.setBounds(toolbar.removeFromLeft(70));
-    toolbar.removeFromLeft(3);
-    editClipButton.setBounds(toolbar.removeFromLeft(95));
-    toolbar.removeFromLeft(3);
-    quantizeButton.setBounds(toolbar.removeFromLeft(85));
-    toolbar.removeFromLeft(6);
-    gridSelector.setBounds(toolbar.removeFromLeft(75));
-    toolbar.removeFromLeft(6);
-    saveButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(3);
-    loadButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(3);
-    undoButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(3);
-    redoButton.setBounds(toolbar.removeFromLeft(60));
-    toolbar.removeFromLeft(6);
-    themeSelector.setBounds(toolbar.removeFromLeft(95));
-    toolbar.removeFromLeft(3);
-    audioSettingsButton.setBounds(toolbar.removeFromLeft(105));
-    toolbar.removeFromLeft(3);
-    fullscreenButton.setBounds(toolbar.removeFromLeft(36));
-    toolbar.removeFromLeft(3);
-    projectorButton.setBounds(toolbar.removeFromLeft(45));
-    projectorButton.setVisible(true);
-    toolbar.removeFromLeft(3);
-    visSelector.setBounds(toolbar.removeFromLeft(80));
-    toolbar.removeFromLeft(3);
-    midi2Button.setBounds(toolbar.removeFromLeft(44));
+    splitClipButton.setBounds(toolbar.removeFromLeft(55));
+    toolbar.removeFromLeft(2);
+    editClipButton.setBounds(toolbar.removeFromLeft(75));
+    toolbar.removeFromLeft(2);
+    quantizeButton.setBounds(toolbar.removeFromLeft(70));
+    toolbar.removeFromLeft(4);
+    gridSelector.setBounds(toolbar.removeFromLeft(65));
+    toolbar.removeFromLeft(4);
+    saveButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(2);
+    loadButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(2);
+    undoButton.setBounds(toolbar.removeFromLeft(50));
+    toolbar.removeFromLeft(2);
+    redoButton.setBounds(toolbar.removeFromLeft(50));
+
+    // Pack remaining controls at the right end of the toolbar
+    midi2Button.setBounds(toolbar.removeFromRight(36));
+    toolbar.removeFromRight(2);
+    visSelector.setBounds(toolbar.removeFromRight(72));
+    toolbar.removeFromRight(2);
+    projectorButton.setBounds(toolbar.removeFromRight(38));
+    toolbar.removeFromRight(2);
+    fullscreenButton.setBounds(toolbar.removeFromRight(32));
+    toolbar.removeFromRight(2);
+    audioSettingsButton.setBounds(toolbar.removeFromRight(80));
+    toolbar.removeFromRight(2);
+    themeSelector.setBounds(toolbar.removeFromRight(82));
 
     // ── Right Panel ──
     auto rightPanel = area.removeFromRight(rightPanelW).reduced(8, 4);
 
-    // Visualizer display at top of right panel — shows selected mode
-    auto visPanelArea = rightPanel.removeFromTop(100);
+    // Visualizer display
+    auto visPanelArea = rightPanel.removeFromTop(70);
     if (currentVisMode == 0)  // Spectrum
     {
         spectrumDisplay.setBounds(visPanelArea);
@@ -2181,10 +2250,23 @@ void MainComponent::resized()
         pianoOctUpButton.setVisible(false);
     }
 
-    // ── Timeline fills the rest ──
+    // ── Timeline / Mixer fills the rest ──
     area.reduce(2, 2);
-    if (timelineComponent)
-        timelineComponent->setBounds(area);
+    if (mixerVisible)
+    {
+        mixerComponent->setBounds(area);
+        mixerComponent->setVisible(true);
+        if (timelineComponent) timelineComponent->setVisible(false);
+    }
+    else
+    {
+        mixerComponent->setVisible(false);
+        if (timelineComponent)
+        {
+            timelineComponent->setVisible(true);
+            timelineComponent->setBounds(area);
+        }
+    }
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────

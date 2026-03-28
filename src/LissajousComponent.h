@@ -60,7 +60,7 @@ public:
         uint32_t bgColor  = 0xff0a0e14;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
-            dotColor = lnf->getTheme().amber;
+            dotColor = lnf->getTheme().lcdAmber;
             bgColor  = lnf->getTheme().bodyDark;
         }
 

@@ -13,6 +13,7 @@
 #include "GeissComponent.h"
 #include "ProjectMComponent.h"
 #include "TouchPianoComponent.h"
+#include "MixerComponent.h"
 
 class PluginEditorWindow : public juce::DocumentWindow
 {
@@ -24,6 +25,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         setContentNonOwned(editor, true);
+        setResizable(true, false);
         setVisible(true);
         centreWithSize(getWidth(), getHeight());
     }
@@ -108,6 +110,11 @@ private:
     juce::TextButton projectorButton { "PROJ" };
     bool projectorMode = false;
     juce::TextButton testNoteButton { "Test Note" };
+
+    // ── Mixer ──
+    std::unique_ptr<MixerComponent> mixerComponent;
+    juce::TextButton mixerButton { "MIX" };
+    bool mixerVisible = false;
 
     // ── Touch Piano ──
     TouchPianoComponent touchPiano;

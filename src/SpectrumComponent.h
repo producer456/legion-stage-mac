@@ -98,12 +98,12 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        // Get colors from theme
+        // Get colors from theme — use lcdAmber for spectrum bars (matches OLED display color)
         uint32_t barColor = 0xffc8e4ff;  // ice-blue default
         uint32_t bgColor  = 0xff0a0e14;
         if (auto* lnf = dynamic_cast<DawLookAndFeel*>(&getLookAndFeel()))
         {
-            barColor = lnf->getTheme().amber;
+            barColor = lnf->getTheme().lcdAmber;
             bgColor  = lnf->getTheme().bodyDark;
         }
 
