@@ -1675,8 +1675,46 @@ void MainComponent::saveProject()
                 trackXml->setAttribute("soloed", track.gainProcessor->soloed.load());
             }
 
+            // Save plugin description and state
             if (track.plugin)
-                trackXml->setAttribute("pluginName", track.plugin->getName());
+            {
+                auto* pluginXml = trackXml->createNewChildElement("Plugin");
+                // Find matching description from known list
+                for (const auto& desc : pluginHost.getPluginList().getTypes())
+                {
+                    if (desc.name == track.plugin->getName() && desc.isInstrument)
+                    {
+                        pluginXml->addChildElement(desc.createXml().release());
+                        break;
+                    }
+                }
+                // Save plugin state (presets, parameters)
+                juce::MemoryBlock state;
+                track.plugin->getStateInformation(state);
+                pluginXml->setAttribute("state", state.toBase64Encoding());
+            }
+
+            // Save FX chains
+            for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
+            {
+                if (track.fxSlots[fx].processor != nullptr)
+                {
+                    auto* fxXml = trackXml->createNewChildElement("FX");
+                    fxXml->setAttribute("slot", fx);
+                    fxXml->setAttribute("bypassed", track.fxSlots[fx].bypassed);
+                    for (const auto& desc : pluginHost.getPluginList().getTypes())
+                    {
+                        if (desc.name == track.fxSlots[fx].processor->getName() && !desc.isInstrument)
+                        {
+                            fxXml->addChildElement(desc.createXml().release());
+                            break;
+                        }
+                    }
+                    juce::MemoryBlock fxState;
+                    track.fxSlots[fx].processor->getStateInformation(fxState);
+                    fxXml->setAttribute("state", fxState.toBase64Encoding());
+                }
+            }
 
             auto* cp = track.clipPlayer;
             if (cp == nullptr) continue;
@@ -1726,9 +1764,12 @@ void MainComponent::loadProject()
             return;
         }
 
-        // Clear all clips first
+        // Clear all tracks first
         for (int t = 0; t < PluginHost::NUM_TRACKS; ++t)
         {
+            pluginHost.unloadPlugin(t);
+            for (int fx = 0; fx < Track::NUM_FX_SLOTS; ++fx)
+                pluginHost.unloadFx(t, fx);
             auto* cp = pluginHost.getTrack(t).clipPlayer;
             if (cp == nullptr) continue;
             for (int s = 0; s < ClipPlayerNode::NUM_SLOTS; ++s)
@@ -1755,6 +1796,63 @@ void MainComponent::loadProject()
                 track.gainProcessor->pan.store(static_cast<float>(trackXml->getDoubleAttribute("pan", 0.0)));
                 track.gainProcessor->muted.store(trackXml->getBoolAttribute("muted", false));
                 track.gainProcessor->soloed.store(trackXml->getBoolAttribute("soloed", false));
+            }
+
+            // Restore plugin
+            auto* pluginXml = trackXml->getChildByName("Plugin");
+            if (pluginXml != nullptr)
+            {
+                // Find the plugin description element
+                for (auto* descXml : pluginXml->getChildIterator())
+                {
+                    juce::PluginDescription desc;
+                    if (desc.loadFromXml(*descXml))
+                    {
+                        juce::String err;
+                        if (pluginHost.loadPlugin(t, desc, err))
+                        {
+                            // Restore plugin state
+                            auto stateStr = pluginXml->getStringAttribute("state");
+                            if (stateStr.isNotEmpty())
+                            {
+                                juce::MemoryBlock state;
+                                state.fromBase64Encoding(stateStr);
+                                pluginHost.getTrack(t).plugin->setStateInformation(
+                                    state.getData(), static_cast<int>(state.getSize()));
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Restore FX chains
+            for (auto* fxXml : trackXml->getChildWithTagNameIterator("FX"))
+            {
+                int fxSlot = fxXml->getIntAttribute("slot", -1);
+                if (fxSlot < 0 || fxSlot >= Track::NUM_FX_SLOTS) continue;
+
+                for (auto* descXml : fxXml->getChildIterator())
+                {
+                    juce::PluginDescription desc;
+                    if (desc.loadFromXml(*descXml))
+                    {
+                        juce::String err;
+                        if (pluginHost.loadFx(t, fxSlot, desc, err))
+                        {
+                            auto stateStr = fxXml->getStringAttribute("state");
+                            if (stateStr.isNotEmpty())
+                            {
+                                juce::MemoryBlock state;
+                                state.fromBase64Encoding(stateStr);
+                                pluginHost.getTrack(t).fxSlots[fxSlot].processor->setStateInformation(
+                                    state.getData(), static_cast<int>(state.getSize()));
+                            }
+                            pluginHost.setFxBypassed(t, fxSlot, fxXml->getBoolAttribute("bypassed", false));
+                        }
+                        break;
+                    }
+                }
             }
 
             auto* cp = track.clipPlayer;
