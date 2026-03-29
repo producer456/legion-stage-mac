@@ -26,8 +26,13 @@ private:
     StatusCallback statusCallback;
     CompletionCallback completionCallback;
 
+#ifdef __APPLE__
+    juce::String repoPath { "~/legion-stage-mac" };
+    juce::String installPath { "/Applications/Legion Stage.app" };
+#else
     juce::String repoPath { "C:\\Users\\goremote\\legion-stage" };
     juce::String installPath { "C:\\Program Files\\Legion Stage\\Legion Stage.exe" };
+#endif
 
     bool runProcess(const juce::String& command, juce::String& output, int timeoutMs = 600000);
     void postStatus(const juce::String& msg);

@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 project(Sequencer VERSION 1.1.0)
 
-# ASIO SDK path — JUCE needs this to compile ASIO support
-set(JUCE_ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk" CACHE PATH "ASIO SDK location")
+# ASIO SDK path — JUCE needs this to compile ASIO support (Windows only)
+if(WIN32)
+    set(JUCE_ASIO_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk" CACHE PATH "ASIO SDK location")
+endif()
 
 add_subdirectory(libs/JUCE)
 
@@ -63,16 +65,25 @@ target_sources(Sequencer PRIVATE
 target_compile_definitions(Sequencer PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
-    JUCE_ASIO=1
-    JUCE_WASAPI=1
-    JUCE_DIRECTSOUND=1
     JUCE_PLUGINHOST_VST3=1
 )
 
-# Point JUCE to the ASIO SDK headers
-target_include_directories(Sequencer PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk/common
-)
+if(WIN32)
+    target_compile_definitions(Sequencer PRIVATE
+        JUCE_ASIO=1
+        JUCE_WASAPI=1
+        JUCE_DIRECTSOUND=1
+    )
+    target_include_directories(Sequencer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/libs/asio-sdk/common
+    )
+elseif(APPLE)
+    target_compile_definitions(Sequencer PRIVATE
+        JUCE_PLUGINHOST_AU=1
+        JUCE_COREAUDIO=1
+        JUCE_COREMIDI=1
+    )
+endif()
 
 target_link_libraries(Sequencer PRIVATE
     juce::juce_audio_utils
@@ -82,5 +93,21 @@ target_link_libraries(Sequencer PRIVATE
     juce::juce_opengl
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
-    opengl32
 )
+
+if(WIN32)
+    target_link_libraries(Sequencer PRIVATE opengl32)
+elseif(APPLE)
+    find_library(OPENGL_FRAMEWORK OpenGL)
+    find_library(COREAUDIO_FRAMEWORK CoreAudio)
+    find_library(COREMIDI_FRAMEWORK CoreMIDI)
+    find_library(AUDIOUNIT_FRAMEWORK AudioUnit)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+    target_link_libraries(Sequencer PRIVATE
+        ${OPENGL_FRAMEWORK}
+        ${COREAUDIO_FRAMEWORK}
+        ${COREMIDI_FRAMEWORK}
+        ${AUDIOUNIT_FRAMEWORK}
+        ${AUDIOTOOLBOX_FRAMEWORK}
+    )
+endif()

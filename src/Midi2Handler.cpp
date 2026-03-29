@@ -627,7 +627,7 @@ juce::String Midi2Handler::buildParameterList() const
     {
         if (i > 0) json += ",";
 
-        auto& m = mappings[i];
+        auto m = mappings[i];
         int defaultVal = 0;
 
         if (currentPlugin != nullptr)
@@ -654,7 +654,7 @@ juce::String Midi2Handler::buildProgramEdit() const
     {
         if (i > 0) json += ",";
 
-        auto& m = mappings[i];
+        auto m = mappings[i];
         int val = 0;
         juce::String displayVal = "0.0";
 

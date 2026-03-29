@@ -30,18 +30,35 @@ void UpdateChecker::run()
 {
     juce::String output;
 
+#ifdef __APPLE__
+    juce::String shell = "/bin/sh";
+    juce::String cdCmd = "cd " + repoPath + " && ";
+#else
+    juce::String shell = "cmd.exe";
+    juce::String cdCmd = "cd /d " + repoPath + " && ";
+#endif
+
     if (currentMode == Mode::Check)
     {
         postStatus("Fetching latest changes...");
+#ifdef __APPLE__
+        if (!runProcess(shell + " -c \"" + cdCmd + "git fetch origin main 2>&1\"", output))
+#else
         if (!runProcess("cmd.exe /c \"cd /d " + repoPath + " && git fetch origin main 2>&1\"", output))
+#endif
         {
             postCompletion(false, "Failed to fetch: " + output);
             return;
         }
 
         juce::String localHash, remoteHash;
+#ifdef __APPLE__
+        if (!runProcess(shell + " -c \"" + cdCmd + "git rev-parse HEAD\"", localHash) ||
+            !runProcess(shell + " -c \"" + cdCmd + "git rev-parse origin/main\"", remoteHash))
+#else
         if (!runProcess("cmd.exe /c \"cd /d " + repoPath + " && git rev-parse HEAD\"", localHash) ||
             !runProcess("cmd.exe /c \"cd /d " + repoPath + " && git rev-parse origin/main\"", remoteHash))
+#endif
         {
             postCompletion(false, "Failed to compare versions.");
             return;
@@ -57,7 +74,11 @@ void UpdateChecker::run()
         }
 
         juce::String commitLog;
+#ifdef __APPLE__
+        runProcess(shell + " -c \"" + cdCmd + "git log --oneline HEAD..origin/main\"", commitLog);
+#else
         runProcess("cmd.exe /c \"cd /d " + repoPath + " && git log --oneline HEAD..origin/main\"", commitLog);
+#endif
 
         if (threadShouldExit()) return;
 
@@ -67,7 +88,11 @@ void UpdateChecker::run()
     else // Mode::Update
     {
         postStatus("Pulling latest changes...");
+#ifdef __APPLE__
+        if (!runProcess(shell + " -c \"" + cdCmd + "git pull origin main 2>&1\"", output))
+#else
         if (!runProcess("cmd.exe /c \"cd /d " + repoPath + " && git pull origin main 2>&1\"", output))
+#endif
         {
             postCompletion(false, "Git pull failed:\n" + output);
             return;
@@ -78,7 +103,12 @@ void UpdateChecker::run()
 
         postStatus("Building... this may take several minutes.");
         juce::String buildOutput;
+#ifdef __APPLE__
+        juce::String buildCmd = shell + " -c \"cd " + repoPath + " && cmake --build build --config Release 2>&1\"";
+        if (!runProcess(buildCmd, buildOutput, 600000))
+#else
         if (!runProcess("cmd.exe /c \"" + repoPath + "\\do_build.bat\" 2>&1", buildOutput, 600000))
+#endif
         {
             postCompletion(false, "Build failed:\n" + buildOutput);
             return;
@@ -89,6 +119,16 @@ void UpdateChecker::run()
 
         postStatus("Installing...");
 
+#ifdef __APPLE__
+        // Copy the built .app bundle to /Applications
+        juce::String buildApp = repoPath + "/build/Sequencer_artefacts/Release/Legion Stage.app";
+        juce::String copyCmd = shell + " -c \"cp -R \\\"" + buildApp + "\\\" \\\"" + installPath + "\\\" 2>&1\"";
+        if (!runProcess(copyCmd, output))
+        {
+            postCompletion(false, "Install failed (could not copy app):\n" + output);
+            return;
+        }
+#else
         // Rename current exe (Windows allows renaming a running exe)
         juce::String oldPath = installPath.replace(".exe", ".exe.old");
         juce::String renameCmd = "cmd.exe /c \"rename \"" + installPath + "\" \"Legion Stage.exe.old\" 2>&1\"";
@@ -109,6 +149,7 @@ void UpdateChecker::run()
                 return;
             }
         }
+#endif
 
         postCompletion(true, "Update installed successfully! Restart to use the new version.");
     }

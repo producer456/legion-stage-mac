@@ -253,7 +253,11 @@ private:
         bootLines.add("  deviceManager.initialiseWithDefaultDevices(0, 2)");
         bootLines.add("  sampleRate: 44100 Hz");
         bootLines.add("  bufferSize: 512 samples");
+#ifdef __APPLE__
+        bootLines.add("  >> CoreAudio output OK");
+#else
         bootLines.add("  >> WASAPI output OK");
+#endif
         bootLines.add("");
         bootLines.add(">> Building audio processor graph...");
         bootLines.add("  addNode(midiInputNode)");
@@ -268,7 +272,11 @@ private:
         bootLines.add("");
         bootLines.add(">> Scanning VST3 plugins...");
         bootLines.add("  formatManager.addFormat(new VST3PluginFormat())");
+#ifdef __APPLE__
+        bootLines.add("  // Searching: /Library/Audio/Plug-Ins/VST3/");
+#else
         bootLines.add("  // Searching: C:/Program Files/Common Files/VST3/");
+#endif
         bootLines.add("  >> Plugin scan complete");
         bootLines.add("");
         bootLines.add(">> Initializing MIDI subsystem...");

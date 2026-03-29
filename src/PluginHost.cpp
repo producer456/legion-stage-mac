@@ -66,6 +66,23 @@ void PluginHost::scanForPlugins()
 
     auto searchPaths = format->getDefaultLocationsToSearch();
 
+#ifdef __APPLE__
+    // macOS VST3 locations
+    juce::StringArray extraPaths = {
+        "/Library/Audio/Plug-Ins/VST3",
+        "~/Library/Audio/Plug-Ins/VST3"
+    };
+
+    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    extraPaths.add(home.getChildFile("Library/Audio/Plug-Ins/VST3").getFullPathName());
+
+    for (auto& path : extraPaths)
+    {
+        juce::File dir(path);
+        if (dir.isDirectory())
+            searchPaths.add(dir);
+    }
+#else
     // Add all common Windows VST3 locations
     juce::StringArray extraPaths = {
         "C:\\Program Files\\Common Files\\VST3",
@@ -102,6 +119,7 @@ void PluginHost::scanForPlugins()
             searchPaths.addIfNotAlreadyThere(parent);
         }
     }
+#endif
 
     auto foundFiles = format->searchPathsForPlugins(searchPaths, true, false);
 
